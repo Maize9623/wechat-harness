@@ -51,7 +51,7 @@ fork-docs/                    评审手册与隔离说明
 - 本机可用的 `DEEPSEEK_API_KEY`（写入根目录 `.env`，不要提交）
 
 ```sh
-git clone https://github.com/AAInfinity/wechat-harness.git
+git clone https://github.com/Maize9623/wechat-harness.git
 cd wechat-harness
 pnpm install
 ```
