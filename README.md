@@ -27,7 +27,7 @@ WeChat Harness 是一套本机桌面 Agent 工作台：在微信式会话里指�
 | 开发包 | `~/Applications/WeChat Harness.app` |
 | 上游 | [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) tag `dsh-v0.1.6-alpha.2`（`ddefc45`） |
 | 开发分支 | `desktop-wechat-port` |
-| 本仓库默认分支 | `main`（当前工作树） |
+| 本仓库默认分支 | `desktop-wechat-port` |
 
 本地 `origin` 仍指向官方上游。本私有仓库使用 remote 名 `wechat`，避免覆盖官方地址。
 
