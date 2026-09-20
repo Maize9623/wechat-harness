@@ -124,7 +124,29 @@ export function prepareDevelopmentProject(options: DevelopmentProjectOptions): s
   const hostLink = join(destinationModules, '@deepseek-ai', 'dsh-desktop-host')
   removeOwnedPath(hostLink)
   linkDirectory(options.hostDir, hostLink)
-  const sharedPackages = [...new Set([...names, '@deepseek-ai/dsh', '@deepseek-ai/dsh-desktop-host'])].flatMap((name) => {
+  const repositoryRoot = join(options.hostDir, '..', '..')
+  const extraPackages = [
+    ['@ainfinity/dsh-wechat-app', 'packages/private/wechat-app'],
+    ['@ainfinity/dsh-wechat-host', 'packages/private/wechat-host'],
+    ['@ainfinity/dsh-wechat-ui', 'packages/private/wechat-ui'],
+    ['@deepseek-ai/dsh-computer-use', 'packages/computer-use/computer-use'],
+    ['@deepseek-ai/dsh-experimental-computer-use-cua-driver-native', 'packages/experimental/computer-use-cua-driver-native'],
+  ] as const
+  const extraLinked: string[] = []
+  for (const [name, relative] of extraPackages) {
+    const source = join(repositoryRoot, relative)
+    if (!existsSync(source)) continue
+    const destination = join(destinationModules, ...name.split('/'))
+    removeOwnedPath(destination)
+    linkDirectory(source, destination)
+    extraLinked.push(name)
+  }
+  const sharedPackages = [...new Set([
+    ...names,
+    '@deepseek-ai/dsh',
+    '@deepseek-ai/dsh-desktop-host',
+    ...extraLinked,
+  ])].flatMap((name) => {
     const manifest = readManifest(join(destinationModules, name, 'package.json'))
     return typeof manifest.version === 'string' ? [{ name, version: manifest.version, path: `node_modules/${name}` }] : []
   })

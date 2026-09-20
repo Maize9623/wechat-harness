@@ -17,6 +17,9 @@ const product: DshDesktopProductApi = {
       return () => { ipcRenderer.off(DESKTOP_IPC.updatesPresentation, handle) }
     },
   },
+  groupChat: {
+    open: (url: string) => ipcRenderer.invoke(DESKTOP_IPC.groupChatOpen, url) as Promise<void>,
+  },
 }
 
 if (location.protocol === `${SCHEME}:` && location.hostname === 'app') {

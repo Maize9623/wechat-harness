@@ -1,0 +1,30 @@
+{
+  "name": "@ainfinity/dsh-wechat-host",
+  "description": "Private WeChat Desktop host routes and isolated group-chat sidecar",
+  "version": "0.1.6-alpha.2",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "bundle:collab-ui": "node scripts/build-collab-ui.mjs"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "workspace:^"
+  },
+  "dependencies": {
+    "@ainfinity/dsh-wechat-ui": "workspace:^",
+    "@deepseek-ai/dsh-home-paths": "workspace:^"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/dsh-host-webserver": "workspace:^",
+    "@types/react": "~18.3.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  }
+}

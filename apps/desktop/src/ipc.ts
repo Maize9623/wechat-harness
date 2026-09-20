@@ -13,6 +13,7 @@ export const DESKTOP_IPC = {
   nativeThemeSet: 'dsh-desktop:native-theme-set',
   windowsAppearance: 'dsh-desktop:windows-appearance',
   windowsMenu: 'dsh-desktop:windows-menu',
+  groupChatOpen: 'dsh-desktop:group-chat-open',
 } as const
 
 /** Desktop release update state rendered by desktop-owned UI. */
@@ -57,6 +58,14 @@ export interface DshDesktopProductApi {
     status(): Promise<DesktopUpdatePresentation>
     open(): Promise<void>
     subscribe(listener: (state: DesktopUpdatePresentation) => void): () => void
+  }
+  /** Second window for the isolated 3191 group-chat sidecar. */
+  readonly groupChat: {
+    /**
+     * Open or focus the group-chat window.
+     * @param url - loopback sidecar URL from the Desktop Host.
+     */
+    open(url: string): Promise<void>
   }
 }
 

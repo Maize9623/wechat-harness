@@ -102,7 +102,7 @@ describe('desktop external plugin profile', () => {
     expect(manifest.dsh.profile.bundles).not.toContain('plugin')
     expect(manifest.dsh.profile.bundles).toContain('@deepseek-ai/dsh-web-app')
     await manager.applyRelease()
-    expect(readFileSync(patch, 'utf8')).toContain('[]')
+    expect(readFileSync(patch, 'utf8')).toContain('@deepseek-ai/dsh-computer-use')
   })
 
   it('needs no runtime or package manifest when no plugins have been installed', async () => {
@@ -161,7 +161,7 @@ describe('desktop external plugin profile', () => {
     await expect(manager.applyRelease()).resolves.toBeUndefined()
     expect(readFileSync(join(manager.paths.profile, '.DS_Store'), 'utf8')).toBe('metadata')
     expect(readFileSync(join(manager.paths.profile, 'user-file'), 'utf8')).toBe('retain')
-    expect(readFileSync(join(manager.paths.profile, 'cordis.patch.yml'), 'utf8')).toContain('[]')
+    expect(readFileSync(join(manager.paths.profile, 'cordis.patch.yml'), 'utf8')).toContain('@deepseek-ai/dsh-computer-use')
     expect(existsSync(join(manager.paths.profile, 'desktop-runtime-state.json'))).toBe(false)
   })
 

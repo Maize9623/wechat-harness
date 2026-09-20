@@ -590,6 +590,9 @@ importers:
 
   apps/desktop-host:
     dependencies:
+      '@ainfinity/dsh-wechat-app':
+        specifier: workspace:^
+        version: link:../../packages/private/wechat-app
       '@deepseek-ai/cordis':
         specifier: workspace:^
         version: link:../../vendor/cordis
@@ -8758,6 +8761,91 @@ importers:
       '@deepseek-ai/dsh-system-prompt':
         specifier: workspace:^
         version: link:../../core/system-prompt
+
+  packages/private/wechat-app:
+    dependencies:
+      '@ainfinity/dsh-wechat-host':
+        specifier: workspace:^
+        version: link:../wechat-host
+      '@ainfinity/dsh-wechat-ui':
+        specifier: workspace:^
+        version: link:../wechat-ui
+
+  packages/private/wechat-host:
+    dependencies:
+      '@ainfinity/dsh-wechat-ui':
+        specifier: workspace:^
+        version: link:../wechat-ui
+      '@deepseek-ai/dsh-home-paths':
+        specifier: workspace:^
+        version: link:../../util/home-paths
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-host-webserver':
+        specifier: workspace:^
+        version: link:../../host/webserver
+      '@types/react':
+        specifier: ~18.3.1
+        version: 18.3.31
+      react:
+        specifier: ^18.2.0
+        version: 18.3.1
+      react-dom:
+        specifier: ^18.2.0
+        version: 18.3.1(react@18.3.1)
+
+  packages/private/wechat-ui:
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-api-session-controller':
+        specifier: workspace:^
+        version: link:../../api/session-controller
+      '@deepseek-ai/dsh-api-workspace-controller':
+        specifier: workspace:^
+        version: link:../../api/workspace-controller
+      '@deepseek-ai/dsh-api-workspace-files':
+        specifier: workspace:^
+        version: link:../../api/workspace-files
+      '@deepseek-ai/dsh-client-connection':
+        specifier: workspace:^
+        version: link:../../client/connection
+      '@deepseek-ai/dsh-client-ui-chat':
+        specifier: workspace:^
+        version: link:../../client/ui-chat
+      '@deepseek-ai/dsh-client-ui-conversation':
+        specifier: workspace:^
+        version: link:../../client/ui-conversation
+      '@deepseek-ai/dsh-client-ui-layout':
+        specifier: workspace:^
+        version: link:../../client/ui-layout
+      '@deepseek-ai/dsh-client-ui-renderer':
+        specifier: workspace:^
+        version: link:../../client/ui-renderer
+      '@deepseek-ai/dsh-client-ui-session':
+        specifier: workspace:^
+        version: link:../../client/ui-session
+      '@deepseek-ai/dsh-client-ui-slots':
+        specifier: workspace:^
+        version: link:../../client/ui-slots
+      '@deepseek-ai/dsh-client-ui-workspace':
+        specifier: workspace:^
+        version: link:../../client/ui-workspace
+      '@deepseek-ai/dsh-session':
+        specifier: workspace:^
+        version: link:../../core/session
+      '@deepseek-ai/dsh-util-workspace-path':
+        specifier: workspace:^
+        version: link:../../util/workspace-path
+      '@types/react':
+        specifier: ~18.3.1
+        version: 18.3.31
+      react:
+        specifier: ^18.2.0
+        version: 18.3.1
 
   packages/ptc-runtime/ptc-runtime:
     devDependencies:

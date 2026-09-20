@@ -1,0 +1,23 @@
+{
+  "name": "@ainfinity/dsh-wechat-app",
+  "description": "Private WeChat Desktop bundle over the official DeepSeek Harness web profile",
+  "version": "0.1.6-alpha.2",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "dependencies": {
+    "@ainfinity/dsh-wechat-host": "workspace:^",
+    "@ainfinity/dsh-wechat-ui": "workspace:^"
+  }
+}

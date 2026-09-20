@@ -7,6 +7,7 @@ import { join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import { DESKTOP_HOST_PROTOCOL_VERSION } from '../src/host-protocol.ts'
 import type { DesktopRelease } from '../src/release.ts'
+import { brandDevelopmentElectronApp } from './brand-development-electron.ts'
 import { prepareDevelopmentProject } from './development-project.ts'
 import { preparePrimaryRuntime } from './prepare-primary-runtime.ts'
 
@@ -67,12 +68,17 @@ async function launchElectron(): Promise<void> {
     ...process.env,
     DSH_HOME: home,
     DSH_DESKTOP_HOST_INSPECT_PORT: String(hostPort),
-    DSH_DESKTOP_OPEN_DEVTOOLS: process.env.DSH_DESKTOP_OPEN_DEVTOOLS ?? '1',
+    DSH_DESKTOP_OPEN_DEVTOOLS: process.env.DSH_DESKTOP_OPEN_DEVTOOLS ?? '0',
     ELECTRON_ENABLE_LOGGING: process.env.ELECTRON_ENABLE_LOGGING ?? '1',
   }
   console.log(`desktop development: DSH_HOME=${home}`)
   console.log(`desktop development: inspectors main=${String(mainPort)}, renderer=${String(rendererPort)}, host=${String(hostPort)}`)
-  await run(electron, [
+  const branded = brandDevelopmentElectronApp(electron, {
+    appRoot: APP_ROOT,
+    home,
+    userData,
+  })
+  await run(branded, [
     `--inspect=127.0.0.1:${String(mainPort)}`,
     `--remote-debugging-port=${String(rendererPort)}`,
     `--user-data-dir=${userData}`,
@@ -85,6 +91,8 @@ async function main(): Promise<void> {
   if (!values['skip-build']) {
     await runPackageScript('build', REPOSITORY_ROOT)
     await runPackageScript('build', APP_ROOT)
+    await runPackageScript('bundle', join(REPOSITORY_ROOT, 'packages/private/wechat-ui'))
+    await runPackageScript('bundle:collab-ui', join(REPOSITORY_ROOT, 'packages/private/wechat-host'))
   }
   for (const path of [
     join(APP_ROOT, 'lib', 'main.js'),

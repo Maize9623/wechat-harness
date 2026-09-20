@@ -51,6 +51,16 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
+:global([data-platform='darwin']) .sectionHeader {
+  -webkit-app-region: drag;
+}
+
+:global([data-platform='darwin']) .sectionHeader button,
+:global([data-platform='darwin']) .sectionHeader input,
+:global([data-platform='darwin']) .sectionHeader a {
+  -webkit-app-region: no-drag;
+}
+
 .root:not(.rail) .sectionHeader {
   margin-top: 2px;
   margin-right: -4px;

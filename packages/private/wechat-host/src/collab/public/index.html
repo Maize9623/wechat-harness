@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DeepSeek Harness · 协作版</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <main id="authView" class="auth-shell hidden">
+    <section class="auth-card">
+      <div class="brand-mark">🐋</div>
+      <p class="eyebrow">一个入口 · 私人与多人协作</p>
+      <h1>像聊天一样一起做事</h1>
+      <p class="muted">登录后只会看到你自己的私人会话，以及你加入的多人会话。</p>
+      <div class="auth-tabs">
+        <button type="button" class="tab active" data-auth-tab="login">登录</button>
+        <button type="button" class="tab" data-auth-tab="register">邀请注册</button>
+      </div>
+      <form id="loginForm" class="stack">
+        <label>账号<input name="username" autocomplete="username" required></label>
+        <label>密码<input name="password" type="password" autocomplete="current-password" required></label>
+        <button class="primary" type="submit">进入我的 Harness</button>
+      </form>
+      <form id="registerForm" class="stack hidden">
+        <label>邀请码<input name="inviteCode" autocomplete="one-time-code" required></label>
+        <label>群聊密码（如有）<input name="roomPassword" type="password"></label>
+        <label>账号<input name="username" autocomplete="username" placeholder="以后登录使用" required></label>
+        <label>昵称<input name="displayName" maxlength="32" placeholder="群里看到的名字" required></label>
+        <fieldset class="avatar-field"><legend>选择头像</legend><div class="avatar-options" data-avatar-options></div></fieldset>
+        <label>密码<input name="password" type="password" minlength="8" autocomplete="new-password" required></label>
+        <button class="primary" type="submit">注册并加入多人会话</button>
+      </form>
+      <form id="setupForm" class="stack hidden">
+        <p class="notice">这是第一次启动。请创建宿主账号；它可以看到这台电脑已有的 Harness 会话，其他账号不可以。</p>
+        <input type="hidden" name="token">
+        <label>账号<input name="username" autocomplete="username" required></label>
+        <label>昵称<input name="displayName" maxlength="32" required></label>
+        <fieldset class="avatar-field"><legend>选择头像</legend><div class="avatar-options" data-avatar-options></div></fieldset>
+        <label>密码<input name="password" type="password" minlength="8" autocomplete="new-password" required></label>
+        <button class="primary" type="submit">完成安全初始化</button>
+      </form>
+    </section>
+  </main>
+
+  <main id="appView" class="app-shell hidden">
+    <aside class="rail">
+      <button type="button" class="rail-avatar" id="railAvatar" title="我的资料"></button>
+      <button type="button" class="rail-icon active" title="当前对话" aria-label="当前对话"><svg viewBox="0 0 24 24"><path d="M21 14a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/></svg></button>
+      <button type="button" class="rail-icon" id="taskRailButton" title="任务看板" aria-label="任务看板"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M3 10h18"/></svg></button>
+      <button type="button" class="rail-icon" id="joinButton" title="加入多人会话" aria-label="加入多人会话"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/><rect x="3" y="3" width="18" height="18" rx="4"/></svg></button>
+      <button type="button" class="rail-icon" id="pluginRailButton" title="插件中心" aria-label="插件中心"><svg viewBox="0 0 24 24"><path d="M8 3v4M16 3v4M5 7h14v5a7 7 0 0 1-14 0zM12 19v2"/></svg></button>
+      <button type="button" class="rail-icon" title="已归档会话" aria-label="已归档会话"><svg viewBox="0 0 24 24"><path d="M4 7h16v13H4zM3 3h18v4H3zM9 11h6"/></svg></button>
+      <button type="button" class="rail-icon" title="聊天记录回收站" aria-label="聊天记录回收站"><svg viewBox="0 0 24 24"><path d="M4 7h16M9 3h6l1 4H8zM6 7l1 14h10l1-14M10 11v6M14 11v6"/></svg></button>
+      <div class="rail-spacer"></div>
+      <button type="button" class="rail-icon" id="settingsRailButton" title="通用设置" aria-label="通用设置"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.6v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1z"/></svg></button>
+      <button type="button" class="rail-icon logout-icon" id="logoutButton" title="退出登录" aria-label="退出登录"><svg viewBox="0 0 24 24"><path d="M10 4H4v16h6M14 8l4 4-4 4M8 12h10"/></svg></button>
+    </aside>
+
+    <aside class="rooms-pane">
+      <header class="rooms-head"><label class="search-box"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4 4"/></svg><input id="sessionSearch" type="search" placeholder="搜索会话" autocomplete="off"></label><button id="newConversationButton" class="round-button" type="button" title="创建会话">＋</button></header>
+      <button type="button" id="pinnedNote" class="pinned-note" title="置顶备注"><span>⌘</span><b>把常用工作流变成像聊天一样简单</b><svg viewBox="0 0 24 24"><path d="m4 20 4-.8L19 8.2 15.8 5 4.8 16zM14.8 6l3.2 3.2"/></svg></button>
+      <div class="session-summary"><span id="sessionCount">0 个会话</span><button type="button" id="sessionViewButton" title="切换会话视图"><svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13"/><circle cx="3" cy="6" r="1"/><circle cx="3" cy="12" r="1"/><circle cx="3" cy="18" r="1"/></svg></button></div>
+      <nav id="sessionList" class="room-list" aria-label="会话列表"></nav>
+    </aside>
+
+    <section class="chat-pane">
+      <header class="chat-head">
+        <button class="room-badge" id="sessionBadge" type="button" title="查看会话简介">AI</button>
+        <div class="chat-title"><h2 id="sessionTitle">选择一个会话</h2><p id="sessionSubtitle">把你的想法告诉我</p></div>
+        <div class="chat-actions">
+          <button type="button" id="promoteButton" class="icon-button hidden" title="转为多人会话">＋</button>
+          <button type="button" id="forceProposalButton" class="icon-button hidden" title="让 AI 立即整理"><svg viewBox="0 0 24 24"><path d="m12 3 1.4 4.2L18 9l-4.6 1.8L12 15l-1.4-4.2L6 9l4.6-1.8zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg></button>
+          <button type="button" id="inviteButton" class="icon-button hidden" title="邀请同事"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0M19 8v6M16 11h6"/></svg></button>
+          <button type="button" id="detailsButton" class="icon-button hidden" title="多人会话详情"><svg viewBox="0 0 24 24"><path d="M21 14a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/></svg></button>
+        </div>
+        <div id="sessionCard" class="session-card hidden"></div>
+      </header>
+      <div id="agentBanner" class="agent-banner hidden"></div>
+      <div id="messageScroller" class="message-scroller">
+        <div id="emptyRoom" class="empty-state"><div id="emptyAvatar" class="empty-icon">🐋</div><h3>现在，可以像聊天一样开始工作</h3><p>把你的想法告诉我</p></div>
+        <div id="timeline" class="timeline"></div>
+      </div>
+      <form id="composer" class="composer hidden">
+        <textarea name="text" maxlength="4000" rows="1" placeholder="给我发消息…"></textarea>
+        <div class="composer-foot"><div class="composer-tools"><button type="button" id="attachmentButton" title="添加附件"><svg viewBox="0 0 24 24"><path d="M4 5h6l2 3h8v11H4z"/></svg></button><button type="button" id="modeButton" title="模式切换"><svg viewBox="0 0 24 24"><path d="M6 3v5M18 3v5M3 8h18v4a9 9 0 0 1-18 0z"/></svg></button><button type="button" id="branchButton" title="分支"><svg viewBox="0 0 24 24"><circle cx="6" cy="5" r="2"/><circle cx="18" cy="5" r="2"/><circle cx="12" cy="19" r="2"/><path d="M6 7v3c0 4 6 3 6 7M18 7v3c0 4-6 3-6 7"/></svg></button><button type="button" id="terminalButton" title="命令"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/></svg></button><button type="button" id="permissionButton" title="权限"><svg viewBox="0 0 24 24"><path d="M12 3 4 7v5c0 5 3.4 8.4 8 9 4.6-.6 8-4 8-9V7z"/><path d="m9 12 2 2 4-5"/></svg></button><button type="button" id="pluginButton" title="插件中心"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg></button></div><span id="composerHint">把你的想法告诉我</span><button type="submit" class="send-button" title="发送"><svg viewBox="0 0 24 24"><path d="m4 4 17 8-17 8 3-8zM7 12h14"/></svg></button></div>
+      </form>
+    </section>
+
+    <aside id="detailsPane" class="details-pane hidden">
+      <header class="details-head"><h2>多人会话详情</h2><button type="button" id="closeDetails" class="icon-button">×</button></header>
+      <section class="detail-section">
+        <div class="section-title"><h3>AI 协作</h3><span id="executionBadge" class="status-pill"></span></div>
+        <label class="switch-row"><span><b>让 AI 参与</b><small>关闭时只聊天，不自动执行</small></span><input id="agentToggle" type="checkbox"></label>
+        <label>本群主题与 AI 角色<textarea id="roomBrief" rows="4" maxlength="500"></textarea></label>
+        <label>确认规则<select id="approvalMode"><option value="unanimous">有执行权成员全员确认</option><option value="admin">群主/管理员确认</option><option value="auto">静默后自动响应</option></select></label>
+        <label>无人继续发言后等待 <span id="quietValue">30 秒</span><input id="quietSeconds" type="range" min="5" max="120" step="5"></label>
+        <button type="button" id="saveSettingsButton" class="secondary full">保存协作规则</button>
+        <p class="safety-note">检测到意见冲突时，无论选择哪种规则，都会强制转为全员确认。</p>
+      </section>
+      <section class="detail-section"><div class="section-title"><h3>成员与权限</h3><span id="memberCount" class="status-pill"></span></div><div id="memberList" class="member-list"></div></section>
+      <section class="detail-section privacy-card"><h3>共享边界</h3><p id="workspaceLabel"></p><p id="historyShareLabel"></p><ul><li>账号只能看到自己的私人会话</li><li>多人 AI 只在白名单协作空间执行</li><li>隐藏指令、凭据和其他会话永不共享</li></ul></section>
+      <section class="detail-section" id="ownerDangerZone"><h3>群主操作</h3><p class="muted">移除其他所有成员后，可以撤销邀请并收回为私人会话。</p><button type="button" id="privatizeButton" class="secondary full">收回为私人会话</button></section>
+    </aside>
+  </main>
+
+  <dialog id="newConversationDialog"><form id="newConversationForm" class="dialog-card">
+    <div class="dialog-head"><div><p class="eyebrow">创建新会话</p><h2>这次是自己用，还是一起用？</h2></div><button type="button" class="icon-button" data-close-dialog>×</button></div>
+    <div class="mode-cards"><label class="mode-card active"><input type="radio" name="visibility" value="private" checked><b>🔒 私人会话</b><small>只有你能看到和使用</small></label><label class="mode-card"><input type="radio" name="visibility" value="shared"><b>👥 多人会话</b><small>用邀请码邀请同事</small></label></div>
+    <label>主标题（可留空）<input name="title" maxlength="48" placeholder="未填写时使用默认标题"></label>
+    <label>副标题（可留空）<input name="subtitle" maxlength="80" placeholder="第一条交互后可继续调整"></label>
+    <div id="sharedCreateFields" class="stack hidden">
+      <label>协作空间<select name="workspaceId" id="workspaceSelect"></select></label>
+      <label>主题与 AI 角色<textarea name="brief" rows="3" maxlength="500" placeholder="项目搭档、会议主持、创作伙伴或游戏主持都可以"></textarea></label>
+      <label>可选群聊密码<input name="roomPassword" type="password" placeholder="邀请码之外的第二层保护"></label>
+      <label class="switch-row"><span><b>创建后开启 AI</b><small>默认先让大家聊天</small></span><input name="agentEnabled" type="checkbox"></label>
+    </div>
+    <button class="primary" type="submit">创建并进入</button>
+  </form></dialog>
+
+  <dialog id="promoteDialog"><form id="promoteForm" class="dialog-card">
+    <div class="dialog-head"><div><p class="eyebrow">发布协作副本</p><h2>转为多人会话</h2></div><button type="button" class="icon-button" data-close-dialog>×</button></div>
+    <p class="notice">转换不会让同事看到你的其他会话。原私人会话保留，多人会话是安全的协作副本。</p>
+    <label>多人会话名称<input name="name" maxlength="48" required></label>
+    <label>协作空间<select name="workspaceId" id="promoteWorkspaceSelect" required></select></label>
+    <fieldset class="share-modes"><legend>旧会话如何共享</legend>
+      <label><input type="radio" name="shareMode" value="from-now" checked><span><b>从现在开始</b><small>不公开任何旧内容</small></span></label>
+      <label><input type="radio" name="shareMode" value="summary"><span><b>只共享我确认的摘要</b><small>最稳妥的连续协作方式</small></span></label>
+      <label><input type="radio" name="shareMode" value="full-history"><span><b>共享全部可见聊天历史</b><small>复制旧聊天供成员和 AI 参考</small></span></label>
+    </fieldset>
+    <label id="shareSummaryField" class="hidden">经过确认的进度摘要<textarea name="shareContext" rows="5" maxlength="4000"></textarea></label>
+    <label id="fullHistoryConfirm" class="confirm-box hidden"><input type="checkbox" name="confirmFullHistory"><span>我已检查旧会话，确认向本群成员共享全部可见聊天历史。</span></label>
+    <label>可选群聊密码<input name="roomPassword" type="password"></label>
+    <button class="primary" type="submit">确认发布为多人会话</button>
+  </form></dialog>
+
+  <dialog id="profileDialog"><form id="profileForm" class="dialog-card">
+    <div class="dialog-head"><div><p class="eyebrow">我的资料</p><h2>同事会这样看到你</h2></div><button type="button" class="icon-button" data-close-dialog>×</button></div>
+    <label>昵称<input name="displayName" maxlength="32" required></label>
+    <fieldset class="avatar-field"><legend>头像</legend><div class="avatar-options" data-avatar-options></div></fieldset>
+    <fieldset class="avatar-field"><legend>头像颜色</legend><div class="avatar-colors" data-avatar-colors></div></fieldset>
+    <label class="avatar-upload">上传自己的图片<input name="avatarImage" type="file" accept="image/*"></label>
+    <p class="muted avatar-hint">图片只用于你的协作身份，建议小于 1.5 MB。</p>
+    <button class="primary" type="submit">保存资料</button>
+  </form></dialog>
+
+  <dialog id="settingsDialog"><form class="dialog-card" method="dialog">
+    <div class="dialog-head"><div><p class="eyebrow">通用设置</p><h2>本机与协作入口</h2></div><button value="cancel" class="icon-button">×</button></div>
+    <section class="settings-section">
+      <div><b>我的资料</b><small>昵称和头像会用于你加入的多人会话。</small></div>
+      <button type="button" id="settingsProfileButton" class="secondary">编辑</button>
+    </section>
+    <section class="settings-section">
+      <div><b>隐私边界</b><small>私人会话只有本人可见；只有主动发布为多人会话的内容才会共享。</small></div>
+      <span class="settings-status">已保护</span>
+    </section>
+    <section class="settings-section">
+      <div><b>多人模式</b><small>新建会话时可选择多人，现有私人会话可用右上角＋发布协作副本。</small></div>
+      <button type="button" id="settingsJoinButton" class="secondary">加入会话</button>
+    </section>
+    <button type="button" id="settingsLogoutButton" class="danger full">退出当前账号</button>
+  </form></dialog>
+
+  <dialog id="pluginDialog"><form class="dialog-card" method="dialog">
+    <div class="dialog-head"><div><p class="eyebrow">插件中心</p><h2>已接入的内容能力</h2></div><button value="cancel" class="icon-button">×</button></div>
+    <p class="muted">大多数插件会自动识别内容并渲染；只有需要明确选择时才出现在输入框工具栏。</p>
+    <div class="plugin-list">
+      <article><span class="plugin-glyph">▦</span><div><b>生成式组件</b><small>表格、图表、表单、时间线、Diff、Mermaid 与 ECharts，在消息气泡内直接显示。</small></div><em>自动</em></article>
+      <article><span class="plugin-glyph">⌁</span><div><b>可视化沙箱</b><small>安全运行 HTML、ECharts 与 Three.js，可在气泡、右侧预览或独立窗口中打开。</small></div><em>已启用</em></article>
+      <article><span class="plugin-glyph">◴</span><div><b>上下文与 Token</b><small>显示上下文组成、历史压缩和 Token 占用，费用统计按当前模型计价。</small></div><em>自动</em></article>
+      <article><span class="plugin-glyph">⏱</span><div><b>定时任务</b><small>识别“每天、每周、某时提醒”等表达，确认后在指定会话主动发消息。</small></div><em>待确认</em></article>
+    </div>
+  </form></dialog>
+
+  <dialog id="codeDialog"><form class="dialog-card" method="dialog">
+    <div class="dialog-head"><div><p class="eyebrow" id="codeDialogEyebrow">邀请同事</p><h2 id="codeDialogTitle">邀请码</h2></div><button value="cancel" class="icon-button">×</button></div>
+    <div id="codeCreateView"><p class="muted">邀请码只能进入当前多人会话，不会开放其他会话、凭据或整台电脑。</p><button type="button" id="createCodeButton" class="primary">生成 24 小时邀请码</button></div>
+    <div id="codeResult" class="code-result hidden"><code id="inviteCodeText"></code><p id="inviteLinkText" class="muted"></p><button id="copyCodeButton" type="button" class="secondary">复制邀请信息</button></div>
+    <div id="codeAcceptView" class="hidden"><label>邀请码<input id="acceptCodeInput" autocomplete="one-time-code"></label><label>群聊密码（如有）<input id="acceptRoomPassword" type="password"></label><button type="button" id="acceptCodeButton" class="primary">加入多人会话</button></div>
+  </form></dialog>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

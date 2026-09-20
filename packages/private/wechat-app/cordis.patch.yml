@@ -1,0 +1,15 @@
+# Private WeChat Desktop layer over the official web profile.
+# Inserts the overlay UI and the isolated 3191 group-chat host.
+# Never binds 3080 or 3091.
+
+- insert:
+    - id: wechat-host
+      name: '@ainfinity/dsh-wechat-host'
+      inject: [webServer, credentials, connection]
+      config:
+        collabPort: 3191
+        harnessUrl: http://127.0.0.1:19387
+        allowHarnessExecution: true
+
+    - id: wechat-ui
+      name: '@ainfinity/dsh-wechat-ui'

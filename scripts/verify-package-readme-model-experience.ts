@@ -35,6 +35,9 @@ const NO_MODEL_EXPERIENCE_SECTION: Readonly<Record<string, string>> = {
   'packages/util/home-paths': 'The package only resolves harness-owned host paths; model-facing consumers own any rendered use.',
   'packages/util/launch-environment': 'The package only resolves host environment values; model-facing consumers own any rendered use.',
   'packages/util/workspace-path': 'The package only formats Workspace paths for browser UI; it never constructs model input.',
+  'packages/private/wechat-app': 'Fork-only Desktop composition layer; model-facing effects belong to official Session plugins and the isolated sidecar.',
+  'packages/private/wechat-host': 'Fork-only Desktop host routes and sidecar; model-facing prompts are owned by the official Session they wake.',
+  'packages/private/wechat-ui': 'Fork-only WeChat overlay; official Session and Conversation plugins own every model request.',
   'packages/util/values': 'The package only validates, snapshots, compares, freezes, or rejects caller-owned values; consumers own every model-facing use.',
 }
 

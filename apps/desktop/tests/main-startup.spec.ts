@@ -1,4 +1,5 @@
 import { WINDOWS_TITLEBAR_HEIGHT } from '../src/windows-layout.ts'
+import { EventEmitter } from 'node:events'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { IpcMainInvokeEvent } from 'electron'
 import { join } from 'node:path'
@@ -58,11 +59,13 @@ const harness = await vi.hoisted(async () => {
       removeInsertedCSS: vi.fn(async () => {}),
       openDevTools: vi.fn(),
       getURL: () => this.urls.at(-1) ?? '',
+      reload: vi.fn(),
       mainFrame: { url: '' },
       getZoomFactor: () => 1,
       focus: vi.fn(),
       sendInputEvent: vi.fn(),
       send: vi.fn(),
+      executeJavaScript: vi.fn(async () => undefined),
     })
     readonly show = vi.fn()
     readonly hide = vi.fn()
@@ -71,7 +74,15 @@ const harness = await vi.hoisted(async () => {
     readonly setSize = vi.fn()
     readonly setTitleBarOverlay = vi.fn()
     constructor(readonly options: { show: boolean; modal?: boolean }) {
-      super(); if (windowFailure !== undefined) throw windowFailure; windows.push(this); if (options.modal) policyBlocked.resolve()
+      super(); if (windowFailure !== undefined) throw windowFailure; windows.push(this)
+      app.emit('web-contents-created', {}, this.webContents)
+      if (options.modal) policyBlocked.resolve()
+    }
+    static fromWebContents(contents: unknown) {
+      return windows.find(window => window.webContents === contents)
+    }
+    static getFocusedWindow() {
+      return windows.find(window => !window.destroyed)
     }
     isDestroyed() { return this.destroyed }
     isMinimized() { return false }
@@ -547,7 +558,7 @@ describe('desktop main startup', () => {
     expect(() => handler(event, 'application', NaN, 34)).toThrow('invalid popup request')
     const application = handler(event, 'application', 48, 34)
     expect(harness.menu.buildFromTemplate.mock.lastCall![0].map(item => item.label ?? item.type)).toEqual([
-      '关于 DeepSeek Harness', 'separator', '检查更新…', 'separator', '退出',
+      '关于 WeChat Harness', 'separator', '检查更新…', 'separator', '退出',
     ])
     expect(harness.popup.mock.lastCall![0]).toMatchObject({ window, x: 48, y: 34 })
     expect(harness.popup.mock.lastCall![0].callback).toBeTypeOf('function')
@@ -681,6 +692,16 @@ describe('desktop main startup', () => {
     expect(openWindow({ url: source })).toEqual({ action: 'deny' })
     expect(harness.openExternal).toHaveBeenCalledWith(source)
     harness.openExternal.mockClear()
+    expect(openWindow({ url: 'http://127.0.0.1:3191/' })).toEqual({ action: 'deny' })
+    expect(harness.openExternal).not.toHaveBeenCalled()
+    const collab = harness.windows[1]
+    expect(collab?.urls).toEqual(['http://127.0.0.1:3191/'])
+    expect(collab?.setTitle).toHaveBeenCalledWith('WeChat Harness 群聊')
+    expect(openWindow({ url: 'http://127.0.0.1:3191/?setup=token_1' })).toEqual({ action: 'deny' })
+    expect(harness.windows).toHaveLength(2)
+    expect(collab?.urls).toContain('http://127.0.0.1:3191/?setup=token_1')
+    expect(collab?.focus).toHaveBeenCalled()
+    harness.openExternal.mockClear()
     const external = { preventDefault: vi.fn() }
     window.webContents.emit('will-navigate', external, 'https://example.com/document')
     expect(external.preventDefault).toHaveBeenCalledOnce()
@@ -690,6 +711,32 @@ describe('desktop main startup', () => {
     window.webContents.emit('will-navigate', internal, 'dsh-app://app/session/task-1')
     expect(internal.preventDefault).not.toHaveBeenCalled()
     expect(harness.openExternal).not.toHaveBeenCalled()
+  })
+
+  it('admits only the preview webview partition and forwards Escape from embedded pages', async () => {
+    await readyForUpdate()
+    const window = harness.windows[0]!
+    const denied = { preventDefault: vi.fn() }
+    window.webContents.emit('will-attach-webview', denied, {}, { src: 'https://example.com', partition: 'persist:other' })
+    expect(denied.preventDefault).toHaveBeenCalledOnce()
+    const allowed = { preventDefault: vi.fn() }
+    const prefs = { nodeIntegration: true, contextIsolation: false, sandbox: false, javascript: false }
+    window.webContents.emit('will-attach-webview', allowed, prefs, {
+      src: 'https://www.apple.com/newsroom/',
+      partition: 'persist:diywx-preview',
+    })
+    expect(allowed.preventDefault).not.toHaveBeenCalled()
+    expect(prefs).toEqual({ nodeIntegration: false, contextIsolation: true, sandbox: true, javascript: true })
+    const hostEscape = { preventDefault: vi.fn() }
+    window.webContents.emit('before-input-event', hostEscape, { type: 'keyDown', key: 'Escape' })
+    expect(hostEscape.preventDefault).toHaveBeenCalledOnce()
+    expect(window.webContents.executeJavaScript).toHaveBeenCalledWith('window.dispatchEvent(new CustomEvent("diywx-escape"))')
+    const guest = new EventEmitter()
+    harness.app.emit('web-contents-created', {}, guest)
+    const guestEscape = { preventDefault: vi.fn() }
+    guest.emit('before-input-event', guestEscape, { type: 'keyDown', key: 'Escape' })
+    expect(guestEscape.preventDefault).toHaveBeenCalledOnce()
+    expect(window.webContents.executeJavaScript).toHaveBeenCalledTimes(2)
   })
 
   async function readyForUpdate() {

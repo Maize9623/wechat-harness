@@ -1711,13 +1711,26 @@ describe('plugin registration and config', () => {
     await ctx.plugin(LlmDeepSeek, { protocol: 'chat-completions', baseURL: 'http://127.0.0.1:1' })
     expect(ctx.llm.listProviders()).toEqual([{ id: 'deepseek-official', name: 'DeepSeek' }])
     await expect(ctx.llm.listModels('deepseek-official')).resolves.toEqual([
-      { provider: 'deepseek-official', id: 'deepseek-flash', name: 'DeepSeek-V41-Flash', inputModalities: ['text', 'image'] },
+      {
+        provider: 'deepseek-official',
+        id: 'deepseek-flash',
+        name: 'DeepSeek-V41-Flash',
+        description: 'Default V4.1 Flash route with native multimodal image understanding.',
+        inputModalities: ['text', 'image'],
+      },
       {
         provider: 'deepseek-official',
         id: 'deepseek-v4-pro',
         name: 'DeepSeek-V4-Pro',
         description: 'Stronger agentic coding, knowledge, and difficult reasoning; suited to complex or quality-critical tasks at higher cost.',
         inputModalities: ['text'],
+      },
+      {
+        provider: 'deepseek-official',
+        id: 'deepseek-v4-flash-vision-exp',
+        name: 'DeepSeek-V4-Flash-Vision',
+        description: 'Dedicated multimodal vision route for images and screenshots. The official API currently routes this id to V4.1-Flash.',
+        inputModalities: ['text', 'image'],
       },
     ])
     await expect(ctx.llm.resolveModelInfo('deepseek-official', 'deepseek-flash'))
@@ -1753,6 +1766,19 @@ describe('plugin registration and config', () => {
       defaultMaxTokens: 256_000,
     })
     expect(info?.systemPromptUpdate).toBeUndefined()
+  })
+
+  it('keeps the dedicated vision catalog id image-capable', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(LlmDeepSeek, { protocol: 'chat-completions', baseURL: 'http://127.0.0.1:1' })
+    await expect(ctx.llm.resolveModelInfo('deepseek-official', 'deepseek-v4-flash-vision-exp'))
+      .resolves.toMatchObject({
+        id: 'deepseek-v4-flash-vision-exp',
+        name: 'DeepSeek-V4-Flash-Vision',
+        inputModalities: ['text', 'image'],
+        context: { contextWindow: 1_000_000 },
+      })
   })
 
   it.each(['off', 'low', 'max'] as const)('uses the configured %s reasoning default', async (effort) => {
@@ -1841,13 +1867,26 @@ describe('plugin registration and config', () => {
     await ctx.plugin(LlmRuntime)
     LlmDeepSeek.apply(ctx, { baseURL: 'http://127.0.0.1:1' })
     await expect(ctx.llm.listModels('deepseek-official')).resolves.toEqual([
-      { provider: 'deepseek-official', id: 'deepseek-flash', name: 'DeepSeek-V41-Flash', inputModalities: ['text', 'image'] },
+      {
+        provider: 'deepseek-official',
+        id: 'deepseek-flash',
+        name: 'DeepSeek-V41-Flash',
+        description: 'Default V4.1 Flash route with native multimodal image understanding.',
+        inputModalities: ['text', 'image'],
+      },
       {
         provider: 'deepseek-official',
         id: 'deepseek-v4-pro',
         name: 'DeepSeek-V4-Pro',
         description: 'Stronger agentic coding, knowledge, and difficult reasoning; suited to complex or quality-critical tasks at higher cost.',
         inputModalities: ['text'],
+      },
+      {
+        provider: 'deepseek-official',
+        id: 'deepseek-v4-flash-vision-exp',
+        name: 'DeepSeek-V4-Flash-Vision',
+        description: 'Dedicated multimodal vision route for images and screenshots. The official API currently routes this id to V4.1-Flash.',
+        inputModalities: ['text', 'image'],
       },
     ])
   })
@@ -2173,7 +2212,7 @@ describe('plugin registration and config', () => {
     // First-boot onboarding: the route registers so models stay discoverable;
     // only the request itself needs a key.
     expect(ctx.llm.listProviders()).toEqual([{ id: 'deepseek-official', name: 'DeepSeek' }])
-    await expect(ctx.llm.listModels('deepseek-official')).resolves.toHaveLength(2)
+    await expect(ctx.llm.listModels('deepseek-official')).resolves.toHaveLength(3)
     const first = await assemble(ctx, { model: 'deepseek-flash', messages: [] })
     expect(first.finish).toMatchObject({ kind: 'error', failure: { code: 'MISSING_CREDENTIAL' } })
     // The guidance leads with the managed credential store.
@@ -2261,7 +2300,7 @@ describe('plugin registration and config', () => {
     expect(adapter).toBeInstanceOf(DeepSeekAdapter)
     // Direct embedding shares the plugin's one resolve step, so it advertises
     // the same default catalog instead of a divergent empty one.
-    await expect(adapter.listModels('deepseek-official')).resolves.toHaveLength(2)
+    await expect(adapter.listModels('deepseek-official')).resolves.toHaveLength(3)
   })
 
   it('resolves connection facts and the credential exactly once per stream call', async () => {

@@ -82,7 +82,7 @@ describe('direct Messages HTTP', () => {
     }, body: { thinking: { type: 'enabled' }, output_config: { effort: 'high' } } })
     expect(llm.providerInfo('deepseek-official')).toEqual({ id: 'deepseek-official', name: 'DeepSeek' })
     expect((await llm.listModels('deepseek-official')).map(model => model.id)).toEqual([
-      'deepseek-flash', 'deepseek-v4-pro',
+      'deepseek-flash', 'deepseek-v4-pro', 'deepseek-v4-flash-vision-exp',
     ])
     expect(await llm.resolveModel('deepseek-official', 'deepseek-flash')).toMatchObject({
       name: 'DeepSeek-V41-Flash', inputModalities: ['text', 'image'], systemPromptUpdate: 'in-history',

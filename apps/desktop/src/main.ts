@@ -28,6 +28,7 @@ import { formatDesktopMessage, resolveDesktopLocale } from './locale.ts'
 import { claimDesktopSingleInstance } from './single-instance.ts'
 import { DesktopUpdateCoordinator } from './update-coordinator.ts'
 import { serveWebDocument, authenticateWebHost, forwardWebRequest } from './web-document.ts'
+import { isGroupChatWindowNavigation, isGroupChatWindowUrl } from './group-chat-window.ts'
 import { DesktopFatalRecovery } from './fatal-recovery.ts'
 import { DesktopUpdateJournal } from './update-journal.ts'
 import { DesktopUpdatePreparationError } from './update-error.ts'
@@ -108,7 +109,60 @@ function developmentHostInspectPort(enabled: boolean): number | undefined {
   return port
 }
 
-function createWindow(preload: string, show = false, primary = false): BrowserWindow {
+function emitOverlayEscape(window: BrowserWindow | undefined): void {
+  if (window === undefined || window.isDestroyed()) return
+  void window.webContents.executeJavaScript('window.dispatchEvent(new CustomEvent("diywx-escape"))').catch(() => {
+    // Overlay also listens for capture-phase Escape when this injection is unavailable.
+  })
+}
+
+function hostWindowOf(contents: Electron.WebContents): BrowserWindow | undefined {
+  return BrowserWindow.fromWebContents(contents)
+    ?? BrowserWindow.getFocusedWindow()
+    ?? BrowserWindow.getAllWindows()[0]
+}
+
+function attachPreviewEscape(contents: Electron.WebContents): void {
+  contents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown' || input.key !== 'Escape') return
+    event.preventDefault()
+    emitOverlayEscape(hostWindowOf(contents))
+  })
+}
+
+let groupChatWindow: BrowserWindow | undefined
+
+function openOrFocusGroupChatWindow(url: string, preload: string): void {
+  const existing = groupChatWindow
+  if (existing !== undefined && !existing.isDestroyed()) {
+    if (existing.webContents.getURL() !== url) void existing.loadURL(url)
+    else existing.webContents.reload()
+    if (existing.isMinimized()) existing.restore()
+    existing.show()
+    existing.focus()
+    return
+  }
+  const window = createWindow(preload, true, false, 'group-chat')
+  window.setTitle('WeChat Harness 群聊')
+  groupChatWindow = window
+  window.on('closed', () => {
+    if (groupChatWindow === window) groupChatWindow = undefined
+  })
+  void window.loadURL(url)
+}
+
+function attachWindowOpenHandler(window: BrowserWindow, preload: string): void {
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    if (isGroupChatWindowUrl(url) || isGroupChatWindowNavigation(url)) {
+      openOrFocusGroupChatWindow(url, preload)
+      return { action: 'deny' }
+    }
+    if (['http:', 'https:'].includes(new URL(url).protocol)) void shell.openExternal(url)
+    return { action: 'deny' }
+  })
+}
+
+function createWindow(preload: string, show = false, primary = false, navigation: 'app' | 'group-chat' = 'app'): BrowserWindow {
   const window = new BrowserWindow({
     width: 1280,
     height: 840,
@@ -122,6 +176,7 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
     } : {}),
     // hiddenInset places traffic lights inside the sidebar; sidebar vibrancy
     // needs a transparent window background to show through the page.
+    title: 'WeChat Harness',
     ...(process.platform === 'darwin' ? {
       titleBarStyle: 'hiddenInset' as const,
       trafficLightPosition: { x: 16, y: 18 },
@@ -137,11 +192,34 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
       contextIsolation: true,
       sandbox: true,
       webSecurity: true,
+      webviewTag: true,
     },
   })
-  window.webContents.setWindowOpenHandler(({ url }) => {
-    if (['http:', 'https:'].includes(new URL(url).protocol)) void shell.openExternal(url)
-    return { action: 'deny' }
+  attachWindowOpenHandler(window, preload)
+  window.webContents.on('will-attach-webview', (event, webPreferences, params) => {
+    const src = params.src
+    let source: URL
+    try {
+      if (typeof src !== 'string' || src === '') throw new Error('missing preview url')
+      source = new URL(src)
+    } catch {
+      event.preventDefault()
+      return
+    }
+    if ((source.protocol !== 'http:' && source.protocol !== 'https:') || params.partition !== 'persist:diywx-preview') {
+      event.preventDefault()
+      return
+    }
+    webPreferences.nodeIntegration = false
+    webPreferences.contextIsolation = true
+    webPreferences.sandbox = true
+    webPreferences.javascript = true
+  })
+  window.webContents.on('did-attach-webview', (_event, guest) => {
+    guest.setWindowOpenHandler(({ url }) => {
+      if (['http:', 'https:'].includes(new URL(url).protocol)) void shell.openExternal(url)
+      return { action: 'deny' }
+    })
   })
   window.webContents.on('context-menu', (_event, { isEditable, selectionText, editFlags }) => {
     const items: MenuItemConstructorOptions[] = []
@@ -171,8 +249,15 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
     }
   })
   window.webContents.on('will-navigate', (event, url) => {
+    if (navigation === 'group-chat') {
+      if (isGroupChatWindowNavigation(url)) return
+      event.preventDefault()
+      if (['http:', 'https:'].includes(new URL(url).protocol)) void shell.openExternal(url)
+      return
+    }
     const destination = new URL(url)
-    const current = new URL(window.webContents.getURL())
+    const currentUrl = window.webContents.getURL()
+    const current = new URL(currentUrl === '' ? `${SCHEME}://app/` : currentUrl)
     if (destination.protocol !== `${SCHEME}:`
       && !(destination.protocol === 'http:' && destination.origin === current.origin)) {
       event.preventDefault()
@@ -183,6 +268,8 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
 }
 
 async function main(): Promise<void> {
+  app.setName?.('WeChat Harness')
+  app.on('web-contents-created', (_event, contents) => { attachPreviewEscape(contents) })
   const journalDirectory = process.env.DSH_DESKTOP_UPDATE_JOURNAL_DIR
   const updateJournal = journalDirectory === undefined ? undefined : new DesktopUpdateJournal(journalDirectory, app.getVersion())
   const resources = runtimeResources()
@@ -446,6 +533,13 @@ async function main(): Promise<void> {
     if (mainWindow === undefined || event.sender !== mainWindow.webContents) return
     if (source === 'light' || source === 'dark' || source === 'system') nativeTheme.themeSource = source
   })
+  ipcMain.handle(DESKTOP_IPC.groupChatOpen, async (event, url: unknown) => {
+    assertDesktopSender(event, ['app'])
+    if (typeof url !== 'string' || !isGroupChatWindowNavigation(url)) {
+      throw new Error('dsh desktop: group-chat URL must be the loopback sidecar')
+    }
+    openOrFocusGroupChatWindow(url, appPreload)
+  })
   ipcMain.handle(DESKTOP_IPC.updatesStatus, (event) => {
     assertProductSender(event)
     return presentDesktopUpdate(updates.state)
@@ -575,15 +669,26 @@ async function main(): Promise<void> {
     updates.dispose()
   })
 
-  app.setAboutPanelOptions({
-    applicationName: 'DeepSeek Harness',
+  const aboutIcon = development ? join(app.getAppPath(), 'resources', 'icon-windows.png')
+    : join(process.resourcesPath, 'icon.png')
+  const about = {
+    applicationName: 'WeChat Harness',
     applicationVersion: app.getVersion(),
     // The release has no separate build number; omit Electron's bundle version.
     version: '',
     copyright: '',
-    iconPath: development ? join(app.getAppPath(), 'resources', 'icon-windows.png')
-      : join(process.resourcesPath, 'icon.png'),
-  })
+  }
+  try {
+    app.setAboutPanelOptions({ ...about, iconPath: aboutIcon })
+  } catch (missingAboutIcon) {
+    void missingAboutIcon
+    app.setAboutPanelOptions(about)
+  }
+  try {
+    app.dock?.setIcon?.(development ? join(app.getAppPath(), 'resources', 'icon.png') : aboutIcon)
+  } catch (missingDockIcon) {
+    void missingDockIcon
+  }
   // A custom application menu replaces Electron's default menu, so macOS needs
   // its standard menus and application hide commands declared explicitly.
   const darwin = process.platform === 'darwin'
@@ -765,12 +870,13 @@ async function main(): Promise<void> {
   // Window lifecycle callbacks run while backend startup is pending.
   if (isQuitting()) return
   const window = currentMainWindow()
-  if (window !== undefined && development && process.env.DSH_DESKTOP_OPEN_DEVTOOLS !== '0') {
+  if (window !== undefined && development && process.env.DSH_DESKTOP_OPEN_DEVTOOLS === '1') {
     window.webContents.openDevTools({ mode: 'detach' })
   }
   publishUpdate(updateState)
 }
 
+app.setName?.('WeChat Harness')
 const ownsDesktopInstance = claimDesktopSingleInstance(app, () => { focusPrimaryWindow() })
 
 if (ownsDesktopInstance) void app.whenReady().then(main).catch(async (error: unknown) => {

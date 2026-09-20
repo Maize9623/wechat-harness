@@ -23,7 +23,7 @@ import type { DesktopPaths } from './paths.ts'
 import type { DesktopRelease } from './release.ts'
 import { readDesktopRuntime } from './runtime-tree.ts'
 import {
-  initProfile, PROFILE_TEMPLATES, sanitizeProfile, type ProfileTemplate,
+  initProfile, PROFILE_PATCH_FILENAME, PROFILE_TEMPLATES, sanitizeProfile, type ProfileTemplate,
 } from '@deepseek-ai/dsh-app-boot'
 import { migrateDesktopProfileLinks } from './profile-packages.ts'
 import { cleanProfileCorePackages } from './profile-core-cleanup.ts'
@@ -31,7 +31,16 @@ import { cleanProfileCorePackages } from './profile-core-cleanup.ts'
 const PROJECT_NAME = '@deepseek-ai/dsh-desktop-runtime'
 const DSH_PACKAGE = '@deepseek-ai/dsh'
 const CORE_BUILD_PACKAGE = '@deepseek-ai/dsh-subprocess-local'
-const WEB_PROFILE = PROFILE_TEMPLATES.web as ProfileTemplate
+const WECHAT_BUNDLE = '@ainfinity/dsh-wechat-app'
+const COMPUTER_USE_INSERT = `- insert:
+    - id: computer-use
+      name: '@deepseek-ai/dsh-computer-use'
+    - id: computer-use-cua-native
+      name: '@deepseek-ai/dsh-experimental-computer-use-cua-driver-native'
+`
+const WEB_PROFILE = {
+  bundles: [...(PROFILE_TEMPLATES.web as ProfileTemplate).bundles, WECHAT_BUNDLE],
+} as ProfileTemplate
 const WORKSPACE_SETTINGS = 'nodeLinker: hoisted\nautoInstallPeers: false\n'
 function writeJson(path: string, value: unknown): void {
   writeFileSync(path, `${JSON.stringify(value, undefined, 2)}\n`, { mode: 0o600 })
@@ -173,7 +182,22 @@ export function createDevelopmentProjectMetadata(projectDir: string, release: De
   writeFileSync(join(projectDir, 'pnpm-workspace.yaml'), workspaceFile(), { mode: 0o600 })
 }
 
+/**
+ * Enable official Computer Use plus the native Cua Driver on this Desktop profile.
+ * @param projectDir - Profile directory that already has a patch file.
+ */
+function ensureComputerUse(projectDir: string): void {
+  const patchPath = join(projectDir, PROFILE_PATCH_FILENAME)
+  if (!existsSync(patchPath)) return
+  const raw = readFileSync(patchPath, 'utf8')
+  if (raw.includes('@deepseek-ai/dsh-computer-use')) return
+  if (!raw.includes('Your patch layer for this dsh profile') || !/\[\]\s*$/u.test(raw)) return
+  const next = raw.replace(/\[\]\s*$/u, COMPUTER_USE_INSERT)
+  writeFileSync(patchPath, next.endsWith('\n') ? next : `${next}\n`)
+}
+
 /** Create the first external plugin profile without running a package manager. */
 export function createPluginProfile(projectDir: string): void {
   initProfile(projectDir, WEB_PROFILE.bundles)
+  ensureComputerUse(projectDir)
 }
