@@ -3,6 +3,12 @@ import { createRoot } from 'react-dom/client'
 import { AvatarBadge } from '../../../wechat-ui/src/client/Avatar.tsx'
 import { ConversationPane } from '../../../wechat-ui/src/client/ConversationPane.tsx'
 import { WechatShellFrame } from '../../../wechat-ui/src/client/WechatShell.tsx'
+import {
+  COMPOSER_FEATURE_ITEMS,
+  DEFAULT_HIDDEN_COMPOSER_FEATURES,
+  readHiddenComposerFeatures,
+  writeHiddenComposerFeatures,
+} from '../../../wechat-ui/src/client/composerVisibility.ts'
 import { encodedFile } from '../../../wechat-ui/src/client/fileAttachments.ts'
 import type {
   AvatarView,
@@ -21,7 +27,13 @@ import type {
   SessionItemView,
   SessionUsageHistoryView,
   WorkspaceGroupView,
+  SkillInstallResultView,
+  SkillInventoryEntryView,
 } from '../../../wechat-ui/src/client/types.ts'
+import {
+  skillInstallFriendlyEnabled,
+  skillInstallSourceOf,
+} from '../../../wechat-ui/src/client/skillInstall.ts'
 
 const AVATAR_STORAGE_KEY = 'dsh-diy-lab.session-avatars.v1'
 const USER_AVATAR_STORAGE_KEY = 'dsh-diy-lab.user-avatar.v1'
@@ -38,6 +50,7 @@ const OPTIONAL_RAIL_ITEMS = [
   ['skins', '皮肤中心'], ['pet', '宠物'], ['archived', '已归档会话'],
   ['message-trash', '聊天回收站'], ['usage', '用量统计'],
   ['services', '运行服务'],
+  ['skills', '技能清单'],
 ] as const
 
 interface PublicUser {
@@ -302,6 +315,11 @@ function SettingsDialog({ user, csrf, onClose, logout }: { user: PublicUser; csr
   const [hiddenRailIds, setHiddenRailIds] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem(HIDDEN_RAIL_STORAGE_KEY) ?? '[]') as string[] } catch { return [] }
   })
+  const [hiddenComposerTools, setHiddenComposerTools] = useState<string[]>(readHiddenComposerFeatures)
+  const [modelAccess, setModelAccess] = useState<ModelAccessView | null>(null)
+  const [apiKeyDraft, setApiKeyDraft] = useState('')
+  const [modelBusy, setModelBusy] = useState(false)
+  const [modelError, setModelError] = useState('')
   const [adminUsers, setAdminUsers] = useState<AdminUser[]>([])
   const [adminError, setAdminError] = useState('')
   const hostOwner = user.serverRole === 'host-owner'
@@ -314,6 +332,15 @@ function SettingsDialog({ user, csrf, onClose, logout }: { user: PublicUser; csr
     } catch (reason) { setAdminError(reason instanceof Error ? reason.message : '测试账号读取失败') }
   }
   useEffect(() => { void loadUsers() }, [hostOwner])
+  useEffect(() => {
+    let live = true
+    void api<{ access: ModelAccessView }>('/api/model-access').then((value) => {
+      if (live) setModelAccess(value.access)
+    }).catch((reason) => {
+      if (live) setModelError(reason instanceof Error ? reason.message : '模型通道读取失败')
+    })
+    return () => { live = false }
+  }, [])
 
   const toggleRail = async (id: string): Promise<void> => {
     const next = hiddenRailIds.includes(id) ? hiddenRailIds.filter(item => item !== id) : [...hiddenRailIds, id]
@@ -369,10 +396,80 @@ function SettingsDialog({ user, csrf, onClose, logout }: { user: PublicUser; csr
         <div className="collab-settings-profile"><AvatarBadge avatar={avatarOf(user)} size={54} /><span><strong>{user.displayName}</strong><small>@{user.username}</small></span></div>
         <div className="collab-privacy-note"><strong>内容隔离已开启</strong><p>私人会话只属于当前账号；多人会话只对群成员开放。宿主配置、凭据和其他会话不会经局域网接口提供。</p></div>
         <section className="collab-settings-section">
+          <strong>模型通道</strong>
+          <small>{modelAccess === null
+            ? '正在读取当前 DeepSeek API Key 的接入状态。'
+            : modelAccess.canConfigure
+              ? 'DeepSeek API Key 可在这里由宿主本机更新，不回显明文。ChatGPT Codex 请到主窗口通用设置登录，群聊模型菜单即可切换。'
+              : modelAccess.configured
+                ? '通道由宿主托管；局域网成员可以使用，但无法查看或修改明文。'
+                : '请让宿主在主窗口接入 DeepSeek API 或登录 ChatGPT Codex。'}</small>
+          <div className="collab-model-status" {...modelAccess?.configured === true ? { 'data-configured': '' } : {}}>{modelAccess === null ? '正在读取…' : modelAccess.configured ? '已安全接入' : '尚未接入'}</div>
+          {modelAccess?.canConfigure === true && (
+            <div className="collab-model-form">
+              <input
+                type="password"
+                autoComplete="new-password"
+                value={apiKeyDraft}
+                placeholder={modelAccess.configured ? '输入新 Key 以替换现有配置' : '输入 DeepSeek API Key'}
+                aria-label="DeepSeek API Key"
+                disabled={modelBusy || !modelAccess.writable}
+                onChange={(event) => { setApiKeyDraft(event.target.value); setModelError('') }}
+              />
+              <button
+                className="collab-primary"
+                type="button"
+                disabled={modelBusy || apiKeyDraft.trim() === '' || !modelAccess.writable}
+                onClick={() => {
+                  const apiKey = apiKeyDraft.trim()
+                  if (apiKey === '') return
+                  setModelBusy(true)
+                  setModelError('')
+                  void api<{ access: ModelAccessView }>('/api/model-access', { method: 'POST', body: JSON.stringify({ apiKey }) }, csrf).then((value) => {
+                    setModelAccess(value.access)
+                    setApiKeyDraft('')
+                  }).catch((reason) => {
+                    setModelError(reason instanceof Error ? reason.message : 'DeepSeek Key 保存失败')
+                  }).finally(() => { setModelBusy(false) })
+                }}
+              >{modelBusy ? '保存中…' : modelAccess.configured ? '更新 Key' : '保存并启用'}</button>
+            </div>
+          )}
+          {modelError !== '' && <div className="collab-auth-error collab-settings-error">{modelError}</div>}
+        </section>
+        <section className="collab-settings-section">
           <strong>左侧菜单</strong><small>只显示你需要的功能，设置会跟随当前账号。</small>
           <div className="collab-rail-options">{OPTIONAL_RAIL_ITEMS.map(([id, label]) => (
             <label key={id}><input type="checkbox" checked={!hiddenRailIds.includes(id)} onChange={() => { void toggleRail(id) }} /><span>{label}</span></label>
           ))}</div>
+        </section>
+        <section className="collab-settings-section">
+          <strong>会话功能栏</strong><small>勾选输入区要露出的按钮。会话命令是斜杠命令入口，一般用不到，默认隐藏。</small>
+          <div className="collab-rail-options">{COMPOSER_FEATURE_ITEMS.map(item => (
+            <label key={item.id}>
+              <input
+                type="checkbox"
+                checked={!hiddenComposerTools.includes(item.id)}
+                onChange={() => {
+                  const next = hiddenComposerTools.includes(item.id)
+                    ? hiddenComposerTools.filter(id => id !== item.id)
+                    : [...hiddenComposerTools, item.id]
+                  setHiddenComposerTools(next)
+                  writeHiddenComposerFeatures(next)
+                }}
+              />
+              <span>{item.label}</span>
+            </label>
+          ))}</div>
+          <button
+            type="button"
+            className="collab-composer-reset"
+            onClick={() => {
+              const next = [...DEFAULT_HIDDEN_COMPOSER_FEATURES]
+              setHiddenComposerTools(next)
+              writeHiddenComposerFeatures(next)
+            }}
+          >恢复默认</button>
         </section>
         {hostOwner && <section className="collab-settings-section collab-admin-section">
           <strong>测试账号管理</strong><small>仅本机“大白”最高管理员可发号、停用、重置密码和导出本服务器上的测试记录。</small>
@@ -894,12 +991,20 @@ function App() {
       createdAt: Date.now(),
     })
     try {
+      let outgoing = text
+      if (skillInstallFriendlyEnabled() && skillInstallSourceOf(text) !== undefined) {
+        const installed = await api<{ skill: SkillInstallResultView }>('/api/diy-skills', {
+          method: 'POST',
+          body: JSON.stringify({ source: text }),
+        }, bootstrap.csrf)
+        outgoing = `${text}\n\n（已安装技能 ${installed.skill.name}。请用中文教我怎么用，不要执行 install.sh。）`
+      }
       if (target.kind === 'private') await api(`/api/conversations/${target.id}/messages`, {
-        method: 'POST', body: JSON.stringify({ text, ...(files.length > 0 ? { files: await Promise.all(files.map(encodedFile)) } : {}) }),
+        method: 'POST', body: JSON.stringify({ text: outgoing, ...(files.length > 0 ? { files: await Promise.all(files.map(encodedFile)) } : {}) }),
       }, bootstrap.csrf)
       else await api(`/api/rooms/${target.id}/messages`, {
         method: 'POST',
-        body: JSON.stringify({ text, ...(images.length > 0 ? { images: await Promise.all(images.map(encodedRoomImage)) } : {}), ...(files.length > 0 ? { files: await Promise.all(files.map(encodedFile)) } : {}) }),
+        body: JSON.stringify({ text: outgoing, ...(images.length > 0 ? { images: await Promise.all(images.map(encodedRoomImage)) } : {}), ...(files.length > 0 ? { files: await Promise.all(files.map(encodedFile)) } : {}) }),
       }, bootstrap.csrf)
       await refresh()
       await loadDetail(selectedId)
@@ -1025,6 +1130,8 @@ function App() {
         }))) }
         onLoadSessionUsage={loadUsage}
         onLoadPlugins={async () => []}
+        onLoadSkills={async (cwd) => (await api<{ skills: SkillInventoryEntryView[] }>(cwd === undefined || cwd.trim() === '' ? '/api/diy-skills' : `/api/diy-skills?cwd=${encodeURIComponent(cwd)}`)).skills}
+        onInstallSkill={async (source) => (await api<{ skill: SkillInstallResultView }>('/api/diy-skills', { method: 'POST', body: JSON.stringify({ source }) }, bootstrap.csrf)).skill}
         onLoadServices={async () => (await api<{ services: DshServiceView[] }>('/api/services')).services}
         onStopService={async (id) => {
           await api(`/api/services/${encodeURIComponent(id)}/stop`, { method: 'POST', body: '{}' }, bootstrap.csrf)
@@ -1149,16 +1256,6 @@ function App() {
                 body: JSON.stringify({ provider: option.provider, model: option.model, reasoningEffort: option.reasoningEffort }),
               }, bootstrap.csrf)
               await refresh()
-            }}
-            onLoadModelAccess={async () => {
-              const value = await api<{ access: ModelAccessView }>('/api/model-access')
-              return value.access
-            }}
-            onSaveModelAccess={async (apiKey) => {
-              const value = await api<{ access: ModelAccessView }>('/api/model-access', {
-                method: 'POST', body: JSON.stringify({ apiKey }),
-              }, bootstrap.csrf)
-              return value.access
             }}
           />
         )}

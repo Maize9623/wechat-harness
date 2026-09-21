@@ -8,8 +8,9 @@ import { DiyFileServer } from './file-server.js'
 import { ConversationScheduler } from './scheduler.js'
 import { DiyServiceServer, DshServiceManager } from './services.js'
 import { registerDiyUsageRoute } from './usage-server.js'
-import { registerDiyModelAccessRoute } from './model-access-server.js'
+import { ensureAuthorization, registerDiyModelAccessRoute } from './model-access-server.js'
 import { registerDiyCollabEntryRoute } from './collab-entry-server.js'
+import { registerDiySkillRoute } from './skill-server.js'
 import { browseRoutes } from './browse-server.js'
 
 export const name = 'wechat-host'
@@ -62,6 +63,13 @@ export function apply(ctx, config = {}) {
   registerRoutes(ctx, new DiyFileServer(filesDir, ctx).routes())
   registerDiyUsageRoute(ctx)
   registerDiyModelAccessRoute(ctx)
+  registerDiySkillRoute(ctx)
+  ctx.effect(() => {
+    void ensureAuthorization(ctx).catch(cause => {
+      console.warn('[wechat-host] ChatGPT 登录缝未挂上，Codex 通道暂不可用', cause)
+    })
+    return () => {}
+  }, 'wechat-host: authorization')
   registerRoutes(ctx, browseRoutes(ctx))
 
   const scheduler = new ConversationScheduler(harnessRpc(harnessUrl), scheduleDir, console, ctx)

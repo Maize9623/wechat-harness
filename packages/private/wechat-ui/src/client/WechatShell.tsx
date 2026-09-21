@@ -3,13 +3,14 @@ import { AvatarBadge, AvatarEditor, AvatarPreview, defaultAvatar } from './Avata
 import { Icon } from './icons.tsx'
 import { MessageRecycleBin } from './MessageRecycleBin.tsx'
 import { PluginCenter } from './PluginCenter.tsx'
+import { SkillInventory } from './SkillInventory.tsx'
 import { ServiceManager } from './ServiceManager.tsx'
 import { loadMessageRecycleState, MESSAGE_RECYCLE_EVENT, type MessageRecycleState } from './messageRecycle.ts'
 import { NewSessionDialog } from './NewSessionDialog.tsx'
 import { registerAutoMetadata, SESSION_SUBTITLE_EVENT, SESSION_SUBTITLE_STORAGE_KEY } from './sessionMeta.ts'
 import { sessionRowPreview } from './sessionListPreview.ts'
 import { UsageDashboard } from './UsageDashboard.tsx'
-import type { AvatarView, DshServiceView, SessionItemView, SessionModelView, WechatShellFrameProps } from './types.ts'
+import type { AvatarView, DshServiceView, SessionItemView, SessionModelView, WechatShellFrameProps, WorkspaceGroupView } from './types.ts'
 
 const AVATAR_STORAGE_KEY = 'dsh-diy-lab.session-avatars.v1'
 const USER_AVATAR_STORAGE_KEY = 'dsh-diy-lab.user-avatar.v1'
@@ -37,6 +38,7 @@ const DEFAULT_USER_AVATAR: AvatarView = { color: '#2f6bff', glyph: 'whale' }
 const RAIL_ITEMS = [
   { id: 'conversation', icon: 'chat', label: '当前对话' },
   { id: 'archived', icon: 'archive', label: '已归档会话' },
+  { id: 'skills', icon: 'skill', label: '技能清单' },
   { id: 'message-trash', icon: 'trash', label: '聊天记录回收站' },
   { id: 'services', icon: 'server', label: '运行服务' },
   { id: 'tasks', icon: 'board', label: '任务看板' },
@@ -128,7 +130,25 @@ function loadSubtitles(): Record<string, string> {
 function loadRailOrder(): RailId[] {
   const known = new Set<RailId>(RAIL_ITEMS.map(item => item.id))
   const stored = readJson<string[]>(RAIL_ORDER_STORAGE_KEY, []).filter((id): id is RailId => known.has(id as RailId))
-  return [...stored, ...RAIL_ITEMS.map(item => item.id).filter(id => !stored.includes(id))]
+  const next = [...stored]
+  for (const item of RAIL_ITEMS) {
+    if (next.includes(item.id)) continue
+    if (item.id === 'skills') {
+      const after = next.indexOf('archived')
+      next.splice(after >= 0 ? after + 1 : next.length, 0, item.id)
+      continue
+    }
+    next.push(item.id)
+  }
+  return next
+}
+
+function skillCwdOf(sessionId: string | undefined, workspaces: readonly WorkspaceGroupView[]): string | undefined {
+  if (sessionId === undefined) return undefined
+  const workspace = workspaces.find(item => item.sessionIds.includes(sessionId))
+  if (workspace === undefined || workspace.virtual === true) return undefined
+  if (!workspace.path.startsWith('/') && !/^[A-Za-z]:[\\/]/u.test(workspace.path)) return undefined
+  return workspace.path
 }
 
 function timeLabel(value: string): string {
@@ -199,6 +219,8 @@ export function WechatShellFrame({
   onLoadSessionModels,
   onLoadSessionUsage,
   onLoadPlugins,
+  onLoadSkills,
+  onInstallSkill,
   onLoadServices,
   onStopService,
   renderConversation,
@@ -262,6 +284,8 @@ export function WechatShellFrame({
   const [messageRecycle, setMessageRecycle] = useState<MessageRecycleState>(loadMessageRecycleState)
   const [messageRecycleOpen, setMessageRecycleOpen] = useState(false)
   const [pluginCenterOpen, setPluginCenterOpen] = useState(false)
+  const [skillInventoryOpen, setSkillInventoryOpen] = useState(false)
+  const skillCwd = skillCwdOf(currentSessionId, workspaces)
   const [serviceManagerOpen, setServiceManagerOpen] = useState(false)
   const [services, setServices] = useState<readonly DshServiceView[]>([])
   const [servicesLoading, setServicesLoading] = useState(false)
@@ -531,6 +555,10 @@ export function WechatShellFrame({
     }
     if (item.id === 'workspace') {
       void Promise.resolve(onAddWorkspace()).catch(() => { setToast('添加工作区失败，请稍后重试') })
+      return
+    }
+    if (item.id === 'skills') {
+      setSkillInventoryOpen(true)
       return
     }
     if (item.id === 'plugin-settings') {
@@ -1168,6 +1196,15 @@ export function WechatShellFrame({
       )}
       {pluginCenterOpen && (
         <PluginCenter load={onLoadPlugins} onClose={() => { setPluginCenterOpen(false); setRail('conversation') }} />
+      )}
+      {skillInventoryOpen && (
+        <SkillInventory
+          {...skillCwd === undefined ? {} : { cwd: skillCwd }}
+          {...currentSessionId === undefined ? {} : { sessionId: currentSessionId }}
+          load={onLoadSkills ?? (async () => { throw new Error('当前窗口还不能读取技能清单') })}
+          {...(onInstallSkill === undefined ? {} : { install: onInstallSkill })}
+          onClose={() => { setSkillInventoryOpen(false); setRail('conversation') }}
+        />
       )}
       {serviceManagerOpen && (
         <ServiceManager

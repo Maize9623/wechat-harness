@@ -1,5 +1,50 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
+import { Icon } from './icons.tsx'
 import { LOCAL_HTML_TOKEN, previewTargetOf, type MessagePreviewTarget } from './previewTarget.ts'
+
+async function copyToClipboard(value: string): Promise<void> {
+  if (navigator.clipboard?.writeText !== undefined) {
+    await navigator.clipboard.writeText(value)
+    return
+  }
+  const textarea = document.createElement('textarea')
+  textarea.value = value
+  textarea.setAttribute('readonly', '')
+  textarea.style.position = 'fixed'
+  textarea.style.opacity = '0'
+  document.body.append(textarea)
+  textarea.select()
+  const copied = document.execCommand('copy')
+  textarea.remove()
+  if (!copied) throw new Error('浏览器拒绝了剪贴板写入')
+}
+
+function CodeBlock({ language, code }: { language?: string; code: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <div className="diywx-code-block code-block" {...language === undefined ? {} : { 'data-language': language }}>
+      <div className="diywx-code-toolbar">
+        <span className="diywx-code-language">{language ?? ''}</span>
+        <button
+          type="button"
+          className="diywx-code-copy"
+          data-copied={copied || undefined}
+          title={copied ? '已复制' : '复制'}
+          aria-label={copied ? '已复制' : '复制代码'}
+          onClick={() => {
+            void copyToClipboard(code).then(() => {
+              setCopied(true)
+              window.setTimeout(() => { setCopied(false) }, 1400)
+            }).catch(() => { /* keep the idle label */ })
+          }}
+        >
+          <Icon name={copied ? 'check' : 'copy'} size={13} />
+        </button>
+      </div>
+      <pre className="diywx-markdown-code"><code {...language === undefined ? {} : { 'data-language': language }}>{code}</code></pre>
+    </div>
+  )
+}
 
 const INLINE_PATTERN = new RegExp(
   String.raw`(\[([^\]\n]+)\]\(([^)\s]+)\)|` +
@@ -147,12 +192,7 @@ export function MarkdownMessage({ text, onPreview }: { text: string; onPreview?:
       while (index < lines.length && !/^\s*```\s*$/u.test(lines[index] ?? '')) code.push(lines[index++] ?? '')
       if (index < lines.length) index += 1
       const language = fence[1] || undefined
-      blocks.push(
-        <div className="diywx-code-block code-block" data-language={language} key={`code-${index}`}>
-          {language !== undefined && <span className="diywx-code-language">{language}</span>}
-          <pre className="diywx-markdown-code"><code data-language={language}>{code.join('\n')}</code></pre>
-        </div>,
-      )
+      blocks.push(<CodeBlock key={`code-${index}`} code={code.join('\n')} {...language === undefined ? {} : { language }} />)
       continue
     }
 

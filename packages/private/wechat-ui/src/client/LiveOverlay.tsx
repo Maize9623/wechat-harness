@@ -51,6 +51,8 @@ export interface LiveOverlayInjected {
   loadSessionModels: (sessionIds: readonly string[]) => Promise<Readonly<Record<string, SessionModelView>>>
   loadSessionUsage: WechatShellFrameProps['onLoadSessionUsage']
   loadPlugins: WechatShellFrameProps['onLoadPlugins']
+  loadSkills: WechatShellFrameProps['onLoadSkills']
+  installSkill: WechatShellFrameProps['onInstallSkill']
 }
 
 type LiveOverlayProps =
@@ -111,6 +113,8 @@ export function LiveOverlay({
   loadSessionModels,
   loadSessionUsage,
   loadPlugins,
+  loadSkills,
+  installSkill,
 }: LiveOverlayProps) {
   const sessionState = useSessions(state => state)
   const workspaceState = useWorkspaces(state => state)
@@ -212,6 +216,8 @@ export function LiveOverlay({
       onLoadSessionModels={loadSessionModels}
       onLoadSessionUsage={loadSessionUsage}
       onLoadPlugins={loadPlugins}
+      onLoadSkills={loadSkills}
+      onInstallSkill={installSkill}
       onLoadServices={async () => {
         const response = await fetch('/api/diy-services', { headers: { accept: 'application/json' } })
         const text = await response.text()

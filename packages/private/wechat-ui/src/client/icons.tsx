@@ -5,7 +5,7 @@ type IconName =
   | 'plugin' | 'palette' | 'pet' | 'settings' | 'pin' | 'edit' | 'branch'
   | 'terminal' | 'shield' | 'send' | 'stop' | 'folder' | 'more' | 'spark'
   | 'code' | 'robot' | 'check' | 'chevron' | 'archive' | 'usage' | 'image' | 'list' | 'trash' | 'forward' | 'download'
-  | 'people' | 'file' | 'server'
+  | 'people' | 'file' | 'server' | 'copy' | 'skill'
 
 export function WhaleMark({ size = 28, ...props }: SVGProps<SVGSVGElement> & { size?: number }) {
   return (
@@ -64,5 +64,7 @@ export function Icon({ name, size = 20, ...props }: SVGProps<SVGSVGElement> & { 
     case 'people': return <svg {...common}><circle cx="9" cy="8" r="3"/><path d="M3.5 19v-1.5A4.5 4.5 0 0 1 8 13h2a4.5 4.5 0 0 1 4.5 4.5V19"/><circle cx="17" cy="9" r="2.5"/><path d="M15.5 14.2h1.8a3.7 3.7 0 0 1 3.7 3.7V19"/></svg>
     case 'file': return <svg {...common}><path d="M6 2.5h8l4 4V21H6Z"/><path d="M14 2.5V7h4M9 12h6M9 16h6"/></svg>
     case 'server': return <svg {...common}><rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="14" width="18" height="7" rx="2"/><path d="M7 6.5h.01M7 17.5h.01M11 6.5h7M11 17.5h7"/></svg>
+    case 'copy': return <svg {...common}><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>
+    case 'skill': return <svg {...common}><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H12v16H6.5A2.5 2.5 0 0 1 4 16.5Z"/><path d="M20 5.5A2.5 2.5 0 0 0 17.5 3H12v16h5.5A2.5 2.5 0 0 0 20 16.5Z"/><path d="M12 3v16"/></svg>
   }
 }

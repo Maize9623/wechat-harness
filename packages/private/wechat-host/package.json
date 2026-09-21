@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@ainfinity/dsh-wechat-ui": "workspace:^",
+    "@deepseek-ai/dsh-authorization": "workspace:^",
     "@deepseek-ai/dsh-home-paths": "workspace:^"
   },
   "devDependencies": {

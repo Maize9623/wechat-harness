@@ -273,7 +273,7 @@ export class HarnessBridge {
     if (directory?.routable === true) return directory
     const options = this.modelOptions(directory)
     const preferred = options.find(option => option.provider === 'deepseek-official') ?? options[0]
-    if (!preferred) throw new Error('没有可用模型；请由宿主在模型切换中配置 DeepSeek API Key')
+    if (!preferred) throw new Error('没有可用模型；请由宿主在主窗口接入 DeepSeek API 或登录 ChatGPT Codex')
     return await this.selectSessionModel(sessionId, preferred)
   }
 

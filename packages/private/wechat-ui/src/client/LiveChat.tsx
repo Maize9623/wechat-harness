@@ -21,7 +21,6 @@ import type {
   CommandOptionView,
   ForwardTargetView,
   ImageUploadLimitsView,
-  ModelAccessView,
   ModelOptionView,
   PendingQuestionView,
   PermissionOptionView,
@@ -56,8 +55,6 @@ export interface LiveChatInjected {
   selectPermission: (value: string) => Promise<void>
   loadModels: () => Promise<readonly ModelOptionView[]>
   selectModel: (option: ModelOptionView) => Promise<void>
-  loadModelAccess: () => Promise<ModelAccessView>
-  saveModelAccess: (apiKey: string) => Promise<ModelAccessView>
   forwardMessages: (targetSessionId: string, sourceTitle: string, messages: readonly ChatMessageView[], merged: boolean) => Promise<void>
   refreshSubagents: () => Promise<void>
   setSubagentsVisible: (visible: boolean) => void
@@ -79,10 +76,10 @@ interface PermissionProjectionView {
 }
 
 function permissionLabel(value: string, name?: string): string {
-  if (name !== undefined && name.trim() !== '') return name
   if (value === 'workspace-write') return '工作区可写'
   if (value === 'danger-full-access') return '完全访问'
   if (value === 'read-only') return '只读'
+  if (name !== undefined && name.trim() !== '') return name
   return value
 }
 
@@ -150,8 +147,6 @@ export function LiveChat({
   selectPermission,
   loadModels,
   selectModel,
-  loadModelAccess,
-  saveModelAccess,
   forwardMessages,
   refreshSubagents,
   setSubagentsVisible,
@@ -227,7 +222,10 @@ export function LiveChat({
   })), [summary?.cwd, workspaceItems])
   const permissions = useMemo(() => permissionOptionsOf(permissionProjection), [permissionProjection])
   const sessionIds = sessionState.ids ?? []
-  const access = permissions.find(option => option.current)?.name ?? permissionProjection?.currentValue ?? '访问权限'
+  const currentPermission = permissions.find(option => option.current)
+  const access = currentPermission === undefined
+    ? permissionProjection?.currentValue ?? '访问权限'
+    : permissionLabel(currentPermission.value, currentPermission.name)
   const totalTokens = tokenUsage === undefined ? undefined : [
     tokenUsage.uncachedInputTokens,
     tokenUsage.outputTokens,
@@ -349,8 +347,6 @@ export function LiveChat({
       onSelectPermission={selectPermission}
       onLoadModels={loadModels}
       onSelectModel={selectModel}
-      onLoadModelAccess={loadModelAccess}
-      onSaveModelAccess={saveModelAccess}
     />
   )
 }

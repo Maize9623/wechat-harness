@@ -20,7 +20,23 @@ import { augmentSessionPrompt, visibleUserText } from './persona.ts'
 import { filePromptContext, uploadLocalFiles } from './fileAttachments.ts'
 import { clearAutoMetadata, generatedMetadata, pendingAutoMetadata, storeGeneratedSubtitle } from './sessionMeta.ts'
 import { readLocalUiMode, switchLocalUiMode, type LocalUiMode } from './uiMode.ts'
+import {
+  COMPOSER_FEATURE_ITEMS,
+  DEFAULT_HIDDEN_COMPOSER_FEATURES,
+  readHiddenComposerFeatures,
+  writeHiddenComposerFeatures,
+} from './composerVisibility.ts'
 import { fetchGroupChatEntry, launchGroupChatWindow } from './groupChatEntry.ts'
+import {
+  fetchInstalledSkills,
+  insertSkillInstallTeach,
+  installSkillFromComposer,
+  skillInstallFriendlyEnabled,
+  skillInstallSourceOf,
+  skillViewFromSessionEntry,
+  writeSkillInstallFriendly,
+} from './skillInstall.ts'
+import { autoCodexPromptAnswer, shouldShowCodexTextPrompt } from './codexLogin.ts'
 import type {
   BranchOptionView,
   ChatMessageView,
@@ -212,6 +228,7 @@ const OPTIONAL_RAIL_ITEMS = [
   ['pinned-note', '置顶备注'],
   ['usage', '用量与费用'],
   ['message-trash', '聊天记录回收站'],
+  ['skills', '技能清单'],
   ['services', '运行服务'],
   ['tasks', '任务看板'],
   ['workspace', '添加工作区'],
@@ -288,7 +305,7 @@ function collabCard(): HTMLElement {
   const title = document.createElement('strong')
   title.textContent = '群聊版'
   const hint = document.createElement('p')
-  hint.textContent = '和当前这个单机窗口同时运行。群聊走独立入口 3191，房间和登录数据分开，模型仍用同一把 DeepSeek key。'
+  hint.textContent = '和当前这个单机窗口同时运行。群聊走独立入口 3191，房间和登录数据分开，模型共用主窗口已接入的通道。'
   heading.append(title, hint)
   const row = document.createElement('div')
   row.className = 'diywx-settings-collab-row'
@@ -328,6 +345,288 @@ function settingsScrollArea(dialog: HTMLElement): HTMLElement | null {
   return candidates.sort((left, right) => right.getBoundingClientRect().width - left.getBoundingClientRect().width)[0] ?? null
 }
 
+function visibilityCard(options: {
+  decoration: string
+  title: string
+  hint: string
+  resetLabel: string
+  resetHidden?: readonly string[]
+  items: ReadonlyArray<readonly [string, string]>
+  readHidden: () => string[]
+  writeHidden: (items: string[]) => void
+}): HTMLElement {
+  const card = document.createElement('section')
+  card.dataset.diywxSettingsDecoration = options.decoration
+  card.className = 'diywx-settings-rail-card'
+  const heading = document.createElement('div')
+  heading.className = 'diywx-settings-rail-heading'
+  const copy = document.createElement('div')
+  const strong = document.createElement('strong')
+  strong.textContent = options.title
+  const hint = document.createElement('p')
+  hint.textContent = options.hint
+  copy.append(strong, hint)
+  const reset = document.createElement('button')
+  reset.type = 'button'
+  reset.textContent = options.resetLabel
+  heading.append(copy, reset)
+  const grid = document.createElement('div')
+  grid.className = 'diywx-settings-rail-grid'
+  const render = (): void => {
+    const hidden = new Set(options.readHidden())
+    grid.replaceChildren()
+    for (const [id, itemLabel] of options.items) {
+      const row = document.createElement('label')
+      const name = document.createElement('span')
+      name.textContent = itemLabel
+      const input = document.createElement('input')
+      input.type = 'checkbox'
+      input.checked = !hidden.has(id)
+      input.addEventListener('change', () => {
+        const next = new Set(options.readHidden())
+        if (input.checked) next.delete(id)
+        else next.add(id)
+        options.writeHidden([...next])
+      })
+      row.append(name, input)
+      grid.append(row)
+    }
+  }
+  reset.addEventListener('click', () => { options.writeHidden([...(options.resetHidden ?? [])]); render() })
+  render()
+  card.append(heading, grid)
+  return card
+}
+
+function modelAccessCard(): HTMLElement {
+  const card = document.createElement('section')
+  card.dataset.diywxSettingsDecoration = 'model-access'
+  card.className = 'diywx-settings-ui-card diywx-settings-model-card'
+  const heading = document.createElement('div')
+  const title = document.createElement('strong')
+  title.textContent = '模型通道'
+  const status = document.createElement('small')
+  status.className = 'diywx-settings-model-status'
+  heading.append(title, status)
+  const hint = document.createElement('p')
+  hint.className = 'diywx-settings-channel-copy'
+  hint.textContent = '同一个会话可以在 DeepSeek API 和 ChatGPT Codex 订阅之间切换。这里只管理登录，不回显密钥。'
+  const deepseekTitle = document.createElement('div')
+  deepseekTitle.className = 'diywx-settings-channel-title'
+  deepseekTitle.innerHTML = '<strong>DeepSeek API</strong><small data-channel="deepseek">读取中…</small>'
+  const form = document.createElement('div')
+  form.className = 'diywx-settings-model-form'
+  const input = document.createElement('input')
+  input.type = 'password'
+  input.autocomplete = 'new-password'
+  input.setAttribute('aria-label', 'DeepSeek API Key')
+  const button = document.createElement('button')
+  button.type = 'button'
+  form.append(input, button)
+  const codexTitle = document.createElement('div')
+  codexTitle.className = 'diywx-settings-channel-title'
+  codexTitle.innerHTML = '<strong>ChatGPT Codex 订阅</strong><small data-channel="codex">读取中…</small>'
+  const codexHint = document.createElement('p')
+  codexHint.className = 'diywx-settings-channel-copy'
+  const idleHint = '登录后消耗的是 ChatGPT 套餐额度，不是 DeepSeek 余额。点登录后会给出设备码，在浏览器里确认即可。'
+  const signedHint = '已登录。会话里切换到 Codex 后消耗 ChatGPT 套餐额度，不是 DeepSeek 余额。'
+  const pendingHint = '在浏览器里打开验证页，输入上面的设备码即可。'
+  codexHint.textContent = idleHint
+  const notice = document.createElement('div')
+  notice.className = 'diywx-settings-codex-notice'
+  notice.hidden = true
+  const promptBox = document.createElement('div')
+  promptBox.className = 'diywx-settings-model-form'
+  promptBox.hidden = true
+  const promptInput = document.createElement('input')
+  promptInput.setAttribute('aria-label', 'ChatGPT 登录补充信息')
+  const promptButton = document.createElement('button')
+  promptButton.type = 'button'
+  promptButton.textContent = '继续'
+  const promptChoices = document.createElement('div')
+  promptChoices.className = 'diywx-settings-channel-actions'
+  promptChoices.hidden = true
+  promptBox.append(promptInput, promptButton)
+  const actions = document.createElement('div')
+  actions.className = 'diywx-settings-channel-actions'
+  const loginButton = document.createElement('button')
+  loginButton.type = 'button'
+  const cancelButton = document.createElement('button')
+  cancelButton.type = 'button'
+  cancelButton.textContent = '取消登录'
+  const logoutButton = document.createElement('button')
+  logoutButton.type = 'button'
+  logoutButton.textContent = '退出 Codex'
+  actions.append(loginButton, cancelButton, logoutButton)
+  const error = document.createElement('p')
+  error.className = 'diywx-settings-model-error'
+  error.hidden = true
+  card.append(heading, hint, deepseekTitle, form, codexTitle, codexHint, notice, promptBox, promptChoices, actions, error)
+  let current: ModelAccessView | null = null
+  let answeredPrompt: string | undefined
+  stopModelAccessPoll()
+
+  const render = (access: ModelAccessView | null, message?: string): void => {
+    current = access
+    const deepseek = channelOf(access, 'deepseek')
+    const codex = channelOf(access, 'codex')
+    const signed = [deepseek?.configured === true ? 'DeepSeek' : undefined, codex?.configured === true ? 'Codex' : undefined]
+      .filter((item): item is string => item !== undefined)
+    status.textContent = access === null
+      ? (message === undefined ? '正在读取…' : '读取失败')
+      : signed.length === 0 ? '尚未接入任何通道' : `已接入 ${signed.join(' / ')}`
+    if (signed.length > 0) status.dataset.configured = ''
+    else delete status.dataset.configured
+    const deepseekStatus = deepseekTitle.querySelector('small')
+    if (deepseekStatus !== null) deepseekStatus.textContent = deepseek?.configured === true ? '已接入' : '未接入'
+    const codexStatus = codexTitle.querySelector('small')
+    if (codexStatus !== null) {
+      codexStatus.textContent = codex?.inFlight === true ? '正在登录…' : codex?.configured === true ? '已登录' : '未登录'
+    }
+    const writable = access?.canConfigure === true && access.writable
+    input.hidden = !writable
+    button.hidden = !writable
+    input.disabled = !writable
+    input.placeholder = deepseek?.configured === true ? '输入新 Key 以替换现有配置' : '输入 DeepSeek API Key'
+    button.textContent = deepseek?.configured === true ? '更新 Key' : '保存 DeepSeek'
+    button.disabled = !writable || input.value.trim() === ''
+    const noticeText = codex?.error ?? codex?.notice?.message
+    notice.hidden = noticeText === undefined || noticeText === ''
+    notice.replaceChildren()
+    if (noticeText !== undefined && noticeText !== '') {
+      const line = document.createElement('p')
+      line.textContent = noticeText
+      notice.append(line)
+    }
+    if (codex?.notice?.code !== undefined && codex.notice.code !== '') {
+      const code = document.createElement('code')
+      code.textContent = codex.notice.code
+      notice.append(code)
+    }
+    if (codex?.notice?.url !== undefined && codex.notice.url !== '') {
+      const link = document.createElement('a')
+      link.href = codex.notice.url
+      link.target = '_blank'
+      link.rel = 'noreferrer'
+      link.textContent = '打开 ChatGPT 验证页'
+      notice.append(link)
+    }
+    const autoAnswer = autoCodexPromptAnswer(codex?.prompt)
+    const selectOptions = codex?.inFlight === true && codex.prompt?.kind === 'select'
+      ? (codex.prompt.options ?? [])
+      : []
+    const promptKey = codex?.inFlight === true && codex.prompt !== undefined
+      ? `${codex.prompt.kind}:${codex.prompt.message}`
+      : undefined
+    if (promptKey === undefined) answeredPrompt = undefined
+    promptBox.hidden = !shouldShowCodexTextPrompt(codex)
+    codexHint.textContent = codex?.inFlight === true
+      ? pendingHint
+      : codex?.configured === true ? signedHint : idleHint
+    promptChoices.hidden = selectOptions.length === 0 || autoAnswer !== undefined
+    promptChoices.replaceChildren()
+    for (const option of selectOptions) {
+      const choice = document.createElement('button')
+      choice.type = 'button'
+      choice.textContent = option.label
+      choice.addEventListener('click', () => { void post({ action: 'codex-answer', value: option.id }, choice, '提交中…') })
+      promptChoices.append(choice)
+    }
+    promptInput.placeholder = codex?.prompt?.placeholder ?? codex?.prompt?.message ?? '按提示填写'
+    promptInput.value = ''
+    if (autoAnswer !== undefined && promptKey !== undefined && answeredPrompt !== promptKey) {
+      answeredPrompt = promptKey
+      void post({ action: 'codex-answer', value: autoAnswer }, promptButton, '正在连接…')
+    }
+    loginButton.textContent = codex?.configured === true ? '重新登录 ChatGPT' : '登录 ChatGPT'
+    loginButton.hidden = !writable || codex?.inFlight === true
+    loginButton.disabled = !writable || codex?.inFlight === true
+    cancelButton.hidden = !writable || codex?.inFlight !== true
+    cancelButton.disabled = !writable
+    logoutButton.hidden = !writable || codex?.configured !== true
+    logoutButton.disabled = !writable
+    error.hidden = message === undefined
+    error.textContent = message ?? ''
+    stopModelAccessPoll()
+    if (codex?.inFlight === true) modelAccessPoll = setInterval(() => { void refresh() }, 1200)
+  }
+
+  const refresh = async (): Promise<void> => {
+    try { render(await requestModelAccess()) }
+    catch (cause) { render(current, cause instanceof Error ? cause.message : '模型通道读取失败') }
+  }
+
+  const post = async (body: Record<string, string>, busy: HTMLButtonElement, busyText: string): Promise<void> => {
+    const previous = busy.textContent
+    busy.disabled = true
+    busy.textContent = busyText
+    try {
+      render(await requestModelAccess(body))
+    } catch (cause) {
+      render(current, cause instanceof Error ? cause.message : '模型通道更新失败')
+    } finally {
+      busy.textContent = previous ?? busyText
+    }
+  }
+
+  const save = async (): Promise<void> => {
+    const apiKey = input.value.trim()
+    if (apiKey === '') return
+    try {
+      const next = await requestModelAccess({ apiKey })
+      input.value = ''
+      render(next)
+    } catch (cause) {
+      render(current, cause instanceof Error ? cause.message : 'DeepSeek Key 保存失败')
+    }
+  }
+
+  input.addEventListener('input', () => {
+    button.disabled = input.value.trim() === ''
+    error.hidden = true
+  })
+  input.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' || input.value.trim() === '') return
+    event.preventDefault()
+    void save()
+  })
+  button.addEventListener('click', () => { void save() })
+  loginButton.addEventListener('click', () => { void post({ action: 'codex-login' }, loginButton, '正在登录…') })
+  cancelButton.addEventListener('click', () => { void post({ action: 'codex-cancel' }, cancelButton, '取消中…') })
+  logoutButton.addEventListener('click', () => { void post({ action: 'codex-logout' }, logoutButton, '退出中…') })
+  promptButton.addEventListener('click', () => {
+    const value = promptInput.value.trim()
+    if (value === '') return
+    void post({ action: 'codex-answer', value }, promptButton, '提交中…')
+  })
+  render(null)
+  void refresh()
+  return card
+}
+
+function skillInstallCard(): HTMLElement {
+  const card = document.createElement('section')
+  card.dataset.diywxSettingsDecoration = 'skill-install'
+  card.className = 'diywx-settings-ui-card diywx-settings-skill-card'
+  const heading = document.createElement('div')
+  const title = document.createElement('strong')
+  title.textContent = '技能安装'
+  const hint = document.createElement('p')
+  hint.textContent = '技能是给 Agent 的说明书，和插件不是一类东西。打开后，把技能页上的链接发给任意会话，产品会写到本机 ~/.agents/skills，再教你怎么用；不会执行 install.sh。'
+  heading.append(title, hint)
+  const row = document.createElement('label')
+  row.className = 'diywx-settings-skill-toggle'
+  const name = document.createElement('span')
+  name.textContent = '粘贴技能链接后自动安装'
+  const input = document.createElement('input')
+  input.type = 'checkbox'
+  input.checked = skillInstallFriendlyEnabled()
+  input.addEventListener('change', () => { writeSkillInstallFriendly(input.checked) })
+  row.append(name, input)
+  card.append(heading, row)
+  return card
+}
+
 function decorateSettingsDialog(dialog: HTMLElement, section: string, label: string): void {
   dialog.querySelectorAll('[data-diywx-settings-decoration]').forEach((node) => { node.remove() })
   const title = document.createElement('strong')
@@ -338,49 +637,31 @@ function decorateSettingsDialog(dialog: HTMLElement, section: string, label: str
   if (section !== 'general') return
   const options = settingsScrollArea(dialog)
   if (options === null) return
-  options.prepend(collabCard())
+  const collab = collabCard()
+  options.prepend(collab)
   options.prepend(uiModeCard())
-  const card = document.createElement('section')
-  card.dataset.diywxSettingsDecoration = 'rail'
-  card.className = 'diywx-settings-rail-card'
-  const heading = document.createElement('div')
-  heading.className = 'diywx-settings-rail-heading'
-  const copy = document.createElement('div')
-  const strong = document.createElement('strong')
-  strong.textContent = '左侧功能栏'
-  const hint = document.createElement('p')
-  hint.textContent = '只显示你需要的功能入口；当前对话、已归档会话和通用设置会始终保留。'
-  copy.append(strong, hint)
-  const reset = document.createElement('button')
-  reset.type = 'button'
-  reset.textContent = '全部显示'
-  heading.append(copy, reset)
-  const grid = document.createElement('div')
-  grid.className = 'diywx-settings-rail-grid'
-  const render = (): void => {
-    const hidden = new Set(readHiddenRailItems())
-    grid.replaceChildren()
-    for (const [id, itemLabel] of OPTIONAL_RAIL_ITEMS) {
-      const row = document.createElement('label')
-      const name = document.createElement('span')
-      name.textContent = itemLabel
-      const input = document.createElement('input')
-      input.type = 'checkbox'
-      input.checked = !hidden.has(id)
-      input.addEventListener('change', () => {
-        const next = new Set(readHiddenRailItems())
-        if (input.checked) next.delete(id)
-        else next.add(id)
-        writeHiddenRailItems([...next])
-      })
-      row.append(name, input)
-      grid.append(row)
-    }
-  }
-  reset.addEventListener('click', () => { writeHiddenRailItems([]); render() })
-  render()
-  card.append(heading, grid)
-  options.append(card)
+  const model = modelAccessCard()
+  collab.after(model)
+  model.after(skillInstallCard())
+  options.append(visibilityCard({
+    decoration: 'rail',
+    title: '左侧功能栏',
+    hint: '只显示你需要的功能入口；当前对话、已归档会话和通用设置会始终保留。',
+    resetLabel: '全部显示',
+    items: OPTIONAL_RAIL_ITEMS,
+    readHidden: readHiddenRailItems,
+    writeHidden: writeHiddenRailItems,
+  }))
+  options.append(visibilityCard({
+    decoration: 'composer',
+    title: '会话功能栏',
+    hint: '勾选输入区要露出的按钮。会话命令是斜杠命令入口，一般用不到，默认隐藏。',
+    resetLabel: '恢复默认',
+    resetHidden: DEFAULT_HIDDEN_COMPOSER_FEATURES,
+    items: COMPOSER_FEATURE_ITEMS.map(item => [item.id, item.label] as const),
+    readHidden: readHiddenComposerFeatures,
+    writeHidden: (items) => { writeHiddenComposerFeatures(items) },
+  }))
 }
 
 function isGeneralSettingsDialog(dialog: HTMLElement): boolean {
@@ -512,22 +793,34 @@ interface SessionPageRemote {
   }>
 }
 
-async function requestModelAccess(apiKey?: string): Promise<ModelAccessView> {
+async function requestModelAccess(body?: Record<string, string>): Promise<ModelAccessView> {
   const response = await fetch('/api/diy-model-access', {
-    method: apiKey === undefined ? 'GET' : 'POST',
+    method: body === undefined ? 'GET' : 'POST',
     headers: {
       accept: 'application/json',
-      ...(apiKey === undefined ? {} : { 'content-type': 'application/json' }),
+      ...(body === undefined ? {} : { 'content-type': 'application/json' }),
     },
-    ...(apiKey === undefined ? {} : { body: JSON.stringify({ apiKey }) }),
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   })
   const text = await response.text()
   let value: { ok?: boolean; access?: ModelAccessView; error?: string } = {}
   try { value = JSON.parse(text) as typeof value } catch {
-    throw new Error(`模型凭据接口返回异常（${response.status}）`)
+    throw new Error(`模型通道接口返回异常（${response.status}）`)
   }
-  if (!response.ok || value.access === undefined) throw new Error(value.error ?? '模型凭据读取失败')
+  if (!response.ok || value.access === undefined) throw new Error(value.error ?? '模型通道读取失败')
   return value.access
+}
+
+function channelOf(access: ModelAccessView | null, id: 'deepseek' | 'codex') {
+  return access?.channels?.find(channel => channel.id === id)
+}
+
+let modelAccessPoll: ReturnType<typeof setInterval> | undefined
+
+function stopModelAccessPoll(): void {
+  if (modelAccessPoll === undefined) return
+  clearInterval(modelAccessPoll)
+  modelAccessPoll = undefined
 }
 
 function sessionRemoteOf(ctx: Context): SessionPageRemote | undefined {
@@ -619,7 +912,7 @@ async function loadUsageHistory(
   return { samples: Object.fromEntries(entries), failures }
 }
 
-export const inject = ['slots', 'sessions', 'workspaces', 'connection', 'uiWorkspace', 'uiSession', 'remote', 'remote.session', 'remote.commands', 'remote.pluginInventory', 'remote.workspaceFiles']
+export const inject = ['slots', 'sessions', 'workspaces', 'connection', 'uiWorkspace', 'uiSession', 'remote', 'remote.session', 'remote.commands', 'remote.skills', 'remote.pluginInventory', 'remote.workspaceFiles']
 
 const PRODUCT_TITLE = 'WeChat Harness'
 
@@ -812,6 +1105,19 @@ export function apply(ctx: Context): void {
             fiberPhase: entry.fiberPhase,
           }))
         },
+        loadSkills: async (cwd, sessionId) => {
+          let sessionSkills: ReturnType<typeof skillViewFromSessionEntry>[] = []
+          if (sessionId !== undefined && sessionId.trim() !== '') {
+            try {
+              const result = await ctx.remote.skills.list({ sessionId: sessionId as SessionId })
+              if (result.ok) sessionSkills = result.value.skills.map(skillViewFromSessionEntry)
+            } catch (sessionCatalogFailed) {
+              void sessionCatalogFailed
+            }
+          }
+          return fetchInstalledSkills(cwd, sessionSkills)
+        },
+        installSkill: installSkillFromComposer,
       }),
     }, LocalUiOverlay)
 
@@ -927,9 +1233,13 @@ export function apply(ctx: Context): void {
             if (!renamed.ok) console.warn('[diy-wechat] 首条消息自动命名失败，将由 Harness 使用默认标题', renamed.error)
           }
           const uploadedFiles = files.length === 0 ? [] : await uploadLocalFiles(files)
+          const installed = skillInstallFriendlyEnabled() && skillInstallSourceOf(text) !== undefined
+            ? await installSkillFromComposer(text)
+            : undefined
           const augmented = augmentSessionPrompt(String(sessionId), text, filePromptContext(uploadedFiles))
+          const promptText = installed === undefined ? augmented : insertSkillInstallTeach(augmented, installed)
           const content = [
-            ...(augmented.trim() === '' ? [] : [{ type: 'text' as const, text: augmented }]),
+            ...(promptText.trim() === '' ? [] : [{ type: 'text' as const, text: promptText }]),
             ...await Promise.all(images.map(encodedImage)),
           ]
           if (content.length === 0) throw new Error('请输入消息或添加图片')
@@ -1103,8 +1413,6 @@ export function apply(ctx: Context): void {
             ...(option.reasoningEffort === undefined ? {} : { reasoningEffort: option.reasoningEffort }),
           })
         },
-        loadModelAccess: async () => await requestModelAccess(),
-        saveModelAccess: async apiKey => await requestModelAccess(apiKey),
       }),
     }, LiveChat)
   }), 'ainfinity-wechat: WeChat-style shell overlay')

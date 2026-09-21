@@ -113,6 +113,26 @@ export interface PluginInventoryEntryView {
   fiberPhase: 'pending' | 'loading' | 'active' | 'failed' | 'unloading' | null
 }
 
+export interface SkillInventoryEntryView {
+  name: string
+  description: string
+  whenToUse?: string
+  source: string
+  sourceLabel: string
+  path?: string
+  modelInvocable: boolean
+  userInvocable: boolean
+}
+
+export interface SkillInstallResultView {
+  name: string
+  description: string
+  whenToUse?: string
+  path: string
+  files: readonly string[]
+  created: boolean
+}
+
 export interface ForwardTargetView {
   id: string
   title: string
@@ -215,11 +235,41 @@ export interface ModelOptionView {
   current?: boolean
 }
 
+export interface ModelChannelNoticeView {
+  message: string
+  url?: string
+  code?: string
+}
+
+export interface ModelChannelPromptOptionView {
+  id: string
+  label: string
+}
+
+export interface ModelChannelPromptView {
+  kind: string
+  message: string
+  placeholder?: string
+  options?: readonly ModelChannelPromptOptionView[]
+}
+
+export interface ModelChannelView {
+  id: 'deepseek' | 'codex'
+  label: string
+  configured: boolean
+  writable?: boolean
+  inFlight?: boolean
+  notice?: ModelChannelNoticeView
+  prompt?: ModelChannelPromptView
+  error?: string
+}
+
 export interface ModelAccessView {
   configured: boolean
   writable: boolean
   canConfigure: boolean
   providerLabel?: string
+  channels?: readonly ModelChannelView[]
 }
 
 export interface PermissionOptionView {
@@ -345,8 +395,6 @@ export interface ConversationPaneProps {
   onSelectPermission?: (value: string) => Promise<void>
   onLoadModels?: () => Promise<readonly ModelOptionView[]>
   onSelectModel?: (option: ModelOptionView) => Promise<void>
-  onLoadModelAccess?: () => Promise<ModelAccessView>
-  onSaveModelAccess?: (apiKey: string) => Promise<ModelAccessView | void>
 }
 
 export interface WechatShellFrameProps {
@@ -368,6 +416,8 @@ export interface WechatShellFrameProps {
   onLoadSessionModels: (sessionIds: readonly string[]) => Promise<Readonly<Record<string, SessionModelView>>>
   onLoadSessionUsage: (sessionIds: readonly string[], since?: number) => Promise<SessionUsageHistoryView>
   onLoadPlugins: () => Promise<readonly PluginInventoryEntryView[]>
+  onLoadSkills?: (cwd?: string, sessionId?: string) => Promise<readonly SkillInventoryEntryView[]>
+  onInstallSkill?: (source: string) => Promise<SkillInstallResultView>
   onLoadServices?: () => Promise<readonly DshServiceView[]>
   onStopService?: (id: string) => Promise<void>
   renderConversation: (

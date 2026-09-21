@@ -25,6 +25,20 @@ test('messagesOf keeps the opening user bubble when the window still has it', ()
   assert.equal(messages[1]?.body, '要做这个日历')
 })
 
+test('messagesOf hides Host runtime context and skill reminders from the transcript', () => {
+  const messages = messagesOf({
+    nodes: [
+      { kind: 'user', seq: 1, time: 1_700_000_000_000, content: [{ type: 'text', text: '<<<DSH_DIY_USER_MESSAGE>>>\n你好，这就是你的工作区了。熟悉一下' }] },
+      { kind: 'context', seq: 2, content: [{ type: 'text', text: 'Current runtime context. This snapshot supersedes earlier runtime-context snapshots.\nCurrent DSH file policy: workspace-writable.' }] },
+      { kind: 'context', seq: 3, content: [{ type: 'text', text: '<system-reminder>\nA skill is a reusable set of task-specific instructions.\n- office-docx: Create Word documents.' }] },
+    ],
+    partial: null,
+  })
+  assert.deepEqual(messages.map(message => ({ role: message.role, body: message.body })), [
+    { role: 'user', body: '你好，这就是你的工作区了。熟悉一下' },
+  ])
+})
+
 test('messagesOf recovers a context node that still carries the typed user line', () => {
   const messages = messagesOf({
     nodes: [
@@ -88,6 +102,27 @@ test('mergeLeadingUserMessages prepends recovered users without duplicating a la
     [{ id: 'user-2', role: 'user', body: '测试' }, { id: 'assistant-8', role: 'assistant', body: '要做这个日历' }],
     [{ id: 'history-user-2', role: 'user', body: '测试' }],
   ).map(message => message.id), ['user-2', 'assistant-8'])
+})
+
+test('messagesOf names a permission switch instead of the slash command', () => {
+  const done = messagesOf({
+    nodes: [{
+      kind: 'command',
+      seq: 4,
+      name: 'permission',
+      args: ' danger-full-access',
+      outcome: { kind: 'success', text: 'preset danger-full-access' },
+    }],
+    partial: null,
+  })
+  assert.equal(done[0]?.role, 'status')
+  assert.equal(done[0]?.body, '已切换为完全访问模式')
+
+  const running = messagesOf({
+    nodes: [{ kind: 'command', seq: 5, name: 'permission', args: ' workspace-write', outcome: null }],
+    partial: null,
+  })
+  assert.equal(running[0]?.body, '正在切换为工作区可写')
 })
 
 test('firstOutlineTurnSeq and oldestEventSeq read the paging cursors', () => {

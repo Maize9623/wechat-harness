@@ -20,6 +20,19 @@ import { SessionPersonaDialog } from './SessionPersona.tsx'
 import { loadSessionPersona, saveSessionPersona, type SessionPersona } from './persona.ts'
 import { createConversationSchedule, parseScheduleIntent, type ScheduleIntent } from './scheduleIntent.ts'
 import { prepareVisualizationHtml, VISUALIZATION_STORAGE_EVENT } from './visualizationSandbox.ts'
+import {
+  COMPOSER_VISIBILITY_EVENT,
+  isComposerFeatureVisible,
+  readHiddenComposerFeatures,
+} from './composerVisibility.ts'
+import { COMPOSER_INSERT_EVENT } from './skillInstall.ts'
+import {
+  groupModelsByChannel,
+  modelChannelLabel,
+  readCollapsedModelChannels,
+  toggleCollapsedModelChannel,
+  type ModelChannelId,
+} from './modelChannels.ts'
 import type {
   AvatarView,
   BranchOptionView,
@@ -27,7 +40,6 @@ import type {
   CollaborationDecisionView,
   CommandOptionView,
   ConversationPaneProps,
-  ModelAccessView,
   ModelOptionView,
   PendingQuestionView,
   PermissionOptionView,
@@ -42,12 +54,25 @@ const TOOL_ITEMS = [
   { id: 'workspace', icon: 'folder', label: '项目工作区' },
   { id: 'mode', icon: 'mode', label: '标准模式' },
   { id: 'branch', icon: 'branch', label: 'master 分支' },
-  { id: 'command', icon: 'terminal', label: '添加命令' },
-  { id: 'access', icon: 'shield', label: 'Full access' },
+  { id: 'command', icon: 'terminal', label: '会话命令' },
+  { id: 'access', icon: 'shield', label: '批准模式' },
   { id: 'model', icon: 'model', label: '模型切换' },
 ] as const
 
 type ToolMenuId = typeof TOOL_ITEMS[number]['id']
+
+function reasoningEffortLabel(id: string, name?: string): string {
+  if (id === 'off') return '关闭'
+  if (id === 'low') return '低'
+  if (id === 'high') return '高'
+  if (id === 'max') return '最强'
+  return name !== undefined && name.trim() !== '' ? name : id
+}
+
+function preferredThinkingEffort(efforts: readonly { id: string }[]): string | undefined {
+  return efforts.find(effort => effort.id === 'high')?.id
+    ?? efforts.find(effort => effort.id !== 'off')?.id
+}
 
 interface PendingImage {
   id: string
@@ -519,8 +544,6 @@ interface NativeToolPopoverProps {
   onSelectPermission?: (value: string) => Promise<void>
   onLoadModels?: () => Promise<readonly ModelOptionView[]>
   onSelectModel?: (option: ModelOptionView) => Promise<void>
-  onLoadModelAccess?: () => Promise<ModelAccessView>
-  onSaveModelAccess?: (apiKey: string) => Promise<ModelAccessView | void>
 }
 
 function NativeToolPopover({
@@ -542,22 +565,23 @@ function NativeToolPopover({
   onSelectPermission,
   onLoadModels,
   onSelectModel,
-  onLoadModelAccess,
-  onSaveModelAccess,
 }: NativeToolPopoverProps) {
   const [presets, setPresets] = useState<readonly PresetOptionView[]>([])
   const [branches, setBranches] = useState<readonly BranchOptionView[]>([])
   const [commands, setCommands] = useState<readonly CommandOptionView[]>([])
   const [models, setModels] = useState<readonly ModelOptionView[]>([])
-  const [modelAccess, setModelAccess] = useState<ModelAccessView | null>(null)
-  const [apiKeyDraft, setApiKeyDraft] = useState('')
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [confirming, setConfirming] = useState<PermissionOptionView | null>(null)
+  const [collapsedChannels, setCollapsedChannels] = useState<readonly ModelChannelId[]>(() => readCollapsedModelChannels())
   const item = TOOL_ITEMS.find(option => option.id === menu)
   const currentModel = models.find(option => option.current)
-  const currentEffort = currentModel?.reasoningEfforts?.find(effort => effort.id === currentModel.reasoningEffort)
+  const reasoningEfforts = currentModel?.reasoningEfforts ?? []
+  const thinkingLevels = reasoningEfforts.filter(effort => effort.id !== 'off')
+  const canDisableThinking = reasoningEfforts.some(effort => effort.id === 'off')
+  const thinkingEnabled = currentModel !== undefined && currentModel.reasoningEffort !== 'off'
+  const currentEffort = reasoningEfforts.find(effort => effort.id === currentModel?.reasoningEffort)
 
   useEffect(() => {
     let live = true
@@ -569,14 +593,8 @@ function NativeToolPopover({
         else if (menu === 'branch') setBranches(await onLoadBranches?.() ?? [])
         else if (menu === 'command') setCommands(await onLoadCommands?.() ?? [])
         else if (menu === 'model') {
-          const [nextModels, nextAccess] = await Promise.all([
-            onLoadModels?.() ?? Promise.resolve([]),
-            onLoadModelAccess?.() ?? Promise.resolve(null),
-          ])
-          if (live) {
-            setModels(nextModels)
-            setModelAccess(nextAccess)
-          }
+          const nextModels = await onLoadModels?.() ?? []
+          if (live) setModels(nextModels)
         }
       } catch (reason) {
         if (live) setError(reason instanceof Error ? reason.message : '原生数据读取失败')
@@ -586,7 +604,7 @@ function NativeToolPopover({
     }
     void load()
     return () => { live = false }
-  }, [menu, onLoadBranches, onLoadCommands, onLoadModelAccess, onLoadModels, onLoadPresets])
+  }, [menu, onLoadBranches, onLoadCommands, onLoadModels, onLoadPresets])
 
   const act = async (key: string, action: () => Promise<void> | void, close = true): Promise<void> => {
     setBusy(key)
@@ -633,8 +651,8 @@ function NativeToolPopover({
       <div className="diywx-native-list">
         {confirming !== null ? (
           <div className="diywx-access-confirm">
-            <strong>启用 Full access？</strong>
-            <p>这会允许 Harness 在当前会话中执行高权限操作。请只在你信任当前任务时启用。</p>
+            <strong>切换到完全访问？</strong>
+            <p>这是批准模式里的高权限档，会减少拦截。请只在你信任当前任务时打开。</p>
             <div>
               <button type="button" onClick={() => { setConfirming(null) }}>取消</button>
               <button
@@ -667,17 +685,19 @@ function NativeToolPopover({
             ? empty('当前会话没有工作区')
             : <>{branches.map(option => row(option.name, option.name, option.current ? '当前分支' : undefined, option.current === true, async () => { await onSwitchBranch?.(option.name) }))}{!loading && branches.length === 0 && empty('当前工作区不是 Git 仓库')}</>
         ) : menu === 'command' ? (
-          <>{commands.map(option => (
-            <button
-              key={option.name}
-              type="button"
-              className="diywx-native-row diywx-command-row"
-              onClick={() => { onInsertCommand(`/${option.name}${option.hint === undefined ? '' : ' '}`); onClose() }}
-            >
-              <span className="diywx-command-mark">/</span>
-              <span><strong>{option.name}</strong><small>{option.description}{option.hint === undefined ? '' : ` · ${option.hint}`}</small></span>
-            </button>
-          ))}{!loading && commands.length === 0 && empty('当前会话没有可用命令')}</>
+          <>
+            <div className="diywx-native-hint">点一项会写入输入框，发送后才会执行。</div>
+            {commands.map(option => (
+              <button
+                key={option.name}
+                type="button"
+                className="diywx-native-row diywx-command-row"
+                onClick={() => { onInsertCommand(`/${option.name}${option.hint === undefined ? '' : ' '}`); onClose() }}
+              >
+                <span className="diywx-command-mark">/</span>
+                <span><strong>{option.name}</strong><small>{option.description}{option.hint === undefined ? '' : ` · ${option.hint}`}</small></span>
+              </button>
+            ))}{!loading && commands.length === 0 && empty('当前会话没有可用命令')}</>
         ) : menu === 'access' ? (
           <>{permissions.map(option => row(option.value, option.name, option.description, option.current === true, async () => {
             if (option.dangerous === true && !option.current) { setConfirming(option); return }
@@ -685,72 +705,95 @@ function NativeToolPopover({
           }, !(option.dangerous === true && !option.current)))}{!loading && permissions.length === 0 && empty('当前 Harness 未提供权限切换')}</>
         ) : (
           <>
-            {models.map((option) => {
-              const selectedEffort = option.reasoningEfforts?.find(effort => effort.id === option.reasoningEffort)
-              const detail = `${option.providerName}${option.current === true && selectedEffort !== undefined ? ` · ${selectedEffort.name}` : ''}`
-              return row(option.key, option.name, detail, option.current === true, async () => { await onSelectModel?.(option) })
+            {groupModelsByChannel(models).map(([channel, items]) => {
+              const open = !collapsedChannels.includes(channel)
+              const current = items.find(option => option.current === true)
+              return (
+                <Fragment key={channel}>
+                  <button
+                    type="button"
+                    className="diywx-native-section-title"
+                    aria-expanded={open}
+                    onClick={() => { setCollapsedChannels(toggleCollapsedModelChannel(channel, collapsedChannels)) }}
+                  >
+                    <span>
+                      {modelChannelLabel(channel)}
+                      <Icon name="chevron" size={12} className="diywx-native-section-arrow" data-open={open || undefined} />
+                    </span>
+                    <small>{current === undefined ? '可切换' : open ? '当前' : current.name}</small>
+                  </button>
+                  {open && items.map((option) => {
+                    const selectedEffort = option.reasoningEfforts?.find(effort => effort.id === option.reasoningEffort)
+                    const thinkingNote = option.current !== true || option.reasoningEffort === undefined
+                      ? undefined
+                      : option.reasoningEffort === 'off'
+                        ? '思考已关'
+                        : `思考 · ${reasoningEffortLabel(option.reasoningEffort, selectedEffort?.name)}`
+                    const detail = [option.providerName, thinkingNote].filter(part => part !== undefined && part !== '').join(' · ')
+                    return row(option.key, option.name, detail, option.current === true, async () => { await onSelectModel?.(option) })
+                  })}
+                </Fragment>
+              )
             })}
-            {!loading && models.length === 0 && empty('没有可用模型')}
-            {currentModel !== undefined && (currentModel.reasoningEfforts?.length ?? 0) > 0 && (
+            {!loading && models.length === 0 && empty('没有可用模型。到设置接入 DeepSeek API 或登录 ChatGPT Codex。')}
+            {currentModel !== undefined && reasoningEfforts.length > 0 && (
               <div className="diywx-effort-section">
-                <div className="diywx-native-section-title"><span>推理强度</span><small>{currentEffort?.name ?? currentModel.reasoningEffort ?? '由模型决定'}</small></div>
-                {currentModel.reasoningEfforts?.map(effort => row(
-                  `effort:${currentModel.key}:${effort.id}`,
-                  effort.name,
-                  effort.description,
-                  currentModel.reasoningEffort === effort.id,
-                  async () => { await onSelectModel?.({ ...currentModel, reasoningEffort: effort.id }) },
-                ))}
-              </div>
-            )}
-            {modelAccess !== null && (
-              <div className="diywx-model-access">
                 <div className="diywx-native-section-title">
-                  <span>{modelAccess.providerLabel ?? '模型服务'}</span>
-                  <small data-configured={modelAccess.configured || undefined}>{modelAccess.configured ? '已安全接入' : '尚未接入'}</small>
+                  <span>思考</span>
+                  <small>{thinkingEnabled ? '已开启' : '已关闭'}</small>
                 </div>
-                {modelAccess.canConfigure ? (
+                {canDisableThinking && row(
+                  'thinking:off',
+                  '关闭思考',
+                  '不输出思考过程，回复更快',
+                  !thinkingEnabled,
+                  async () => {
+                    await onSelectModel?.({ ...currentModel, reasoningEffort: 'off' })
+                    setModels(await onLoadModels?.() ?? models)
+                  },
+                  false,
+                )}
+                {thinkingLevels.length > 0 && row(
+                  'thinking:on',
+                  '开启思考',
+                  '先思考再回答',
+                  thinkingEnabled,
+                  async () => {
+                    if (thinkingEnabled) return
+                    const effort = preferredThinkingEffort(thinkingLevels)
+                    if (effort === undefined) return
+                    await onSelectModel?.({ ...currentModel, reasoningEffort: effort })
+                    setModels(await onLoadModels?.() ?? models)
+                  },
+                  false,
+                )}
+                {thinkingEnabled && thinkingLevels.length > 0 && (
                   <>
-                    <p>仅宿主本机可更新 API Key。页面只能读取“是否已配置”，不会回显明文。</p>
-                    <div className="diywx-model-key-row">
-                      <input
-                        type="password"
-                        autoComplete="new-password"
-                        value={apiKeyDraft}
-                        placeholder={modelAccess.configured ? '输入新 Key 以替换现有配置' : '输入 DeepSeek API Key'}
-                        aria-label="DeepSeek API Key"
-                        disabled={busy !== null || !modelAccess.writable}
-                        onChange={(event) => { setApiKeyDraft(event.target.value); setError(null) }}
-                        onKeyDown={(event) => {
-                          if (event.key !== 'Enter' || apiKeyDraft.trim() === '') return
-                          event.preventDefault()
-                          void act('save-model-key', async () => {
-                            const next = await onSaveModelAccess?.(apiKeyDraft.trim())
-                            setApiKeyDraft('')
-                            if (next !== undefined) setModelAccess(next)
-                            setModels(await onLoadModels?.() ?? [])
-                          }, false)
-                        }}
-                      />
-                      <button
-                        type="button"
-                        className="diywx-native-primary"
-                        disabled={busy !== null || apiKeyDraft.trim() === '' || !modelAccess.writable}
-                        onClick={() => {
-                          void act('save-model-key', async () => {
-                            const next = await onSaveModelAccess?.(apiKeyDraft.trim())
-                            setApiKeyDraft('')
-                            if (next !== undefined) setModelAccess(next)
-                            setModels(await onLoadModels?.() ?? [])
-                          }, false)
-                        }}
-                      >{busy === 'save-model-key' ? '保存中…' : modelAccess.configured ? '更新 Key' : '保存并启用'}</button>
+                    <div className="diywx-native-section-title">
+                      <span>推理强度</span>
+                      <small>{currentEffort === undefined
+                        ? '由模型决定'
+                        : reasoningEffortLabel(currentEffort.id, currentEffort.name)}</small>
                     </div>
+                    {thinkingLevels.map(effort => row(
+                      `effort:${currentModel.key}:${effort.id}`,
+                      reasoningEffortLabel(effort.id, effort.name),
+                      effort.description,
+                      currentModel.reasoningEffort === effort.id,
+                      async () => {
+                        await onSelectModel?.({ ...currentModel, reasoningEffort: effort.id })
+                        setModels(await onLoadModels?.() ?? models)
+                      },
+                      false,
+                    ))}
                   </>
-                ) : (
-                  <p>{modelAccess.configured ? '模型凭据由宿主安全托管；局域网成员可以使用，但无法查看或修改明文。' : '请让宿主在本机打开群聊入口，并在这里配置模型凭据。'}</p>
                 )}
               </div>
+            )}
+            {onOpenSettings !== undefined && (
+              <button type="button" className="diywx-native-secondary" onClick={() => { void act('open-key-settings', async () => { await onOpenSettings('general') }) }}>
+                <Icon name="settings" size={15} />到设置管理模型通道
+              </button>
             )}
           </>
         )}
@@ -823,12 +866,11 @@ export function ConversationPane({
   onSelectPermission,
   onLoadModels,
   onSelectModel,
-  onLoadModelAccess,
-  onSaveModelAccess,
 }: ConversationPaneProps) {
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const [menu, setMenu] = useState<ToolMenuId | null>(null)
+  const [hiddenComposerTools, setHiddenComposerTools] = useState<readonly string[]>(readHiddenComposerFeatures)
   const [headMenu, setHeadMenu] = useState<'details' | null>(null)
   const [personaOpen, setPersonaOpen] = useState(false)
   const [persona, setPersona] = useState<SessionPersona>(() => loadSessionPersona(sessionId))
@@ -906,6 +948,29 @@ export function ConversationPane({
       window.clearInterval(timer)
     }
   }, [])
+
+  useEffect(() => {
+    const refresh = (event: Event): void => {
+      const detail = (event as CustomEvent<unknown>).detail
+      setHiddenComposerTools(Array.isArray(detail) ? detail.filter(item => typeof item === 'string') : readHiddenComposerFeatures())
+    }
+    window.addEventListener(COMPOSER_VISIBILITY_EVENT, refresh)
+    return () => { window.removeEventListener(COMPOSER_VISIBILITY_EVENT, refresh) }
+  }, [])
+
+  useEffect(() => {
+    const insert = (event: Event): void => {
+      const detail = (event as CustomEvent<unknown>).detail
+      if (typeof detail !== 'string' || detail.trim() === '') return
+      setDraft(current => current.trim() === '' ? detail : `${current.replace(/\s+$/u, '')} ${detail}`)
+    }
+    window.addEventListener(COMPOSER_INSERT_EVENT, insert)
+    return () => { window.removeEventListener(COMPOSER_INSERT_EVENT, insert) }
+  }, [])
+
+  useEffect(() => {
+    if (menu !== null && !isComposerFeatureVisible(menu, hiddenComposerTools)) setMenu(null)
+  }, [hiddenComposerTools, menu])
 
   useEffect(() => () => {
     pendingImagesRef.current.forEach((image) => { URL.revokeObjectURL(image.previewUrl) })
@@ -1513,7 +1578,7 @@ export function ConversationPane({
                         if ((event.target as HTMLElement).closest('a, button, input, textarea, select') !== null) return
                         setRevealedTimeId(current => current === message.id ? null : message.id)
                       }}
-                    ><MarkdownMessage text={message.body} onPreview={openMessagePreview} /></div>}
+                    >{message.role === 'status' ? message.body : <MarkdownMessage text={message.body} onPreview={openMessagePreview} />}</div>}
                     {revealedTimeId === message.id && exactTime !== undefined && <time className="diywx-message-exact-time">{exactTime}</time>}
                   </div>
                   {message.role === 'user' && <AvatarBadge avatar={userAvatar} size={36} className="diywx-user-avatar" />}
@@ -1674,6 +1739,7 @@ export function ConversationPane({
           />
           <div className="diywx-composer-toolbar">
             <div className="diywx-toolbar-left">
+              {isComposerFeatureVisible('image', hiddenComposerTools) && (
               <button
                 type="button"
                 className="diywx-tool-button diywx-attachment-button"
@@ -1686,6 +1752,8 @@ export function ConversationPane({
                 <Icon name="image" size={19} />
                 {pendingImages.length > 0 && <small>{pendingImages.length}</small>}
               </button>
+              )}
+              {isComposerFeatureVisible('file', hiddenComposerTools) && (
               <button
                 type="button"
                 className="diywx-tool-button diywx-attachment-button"
@@ -1698,7 +1766,8 @@ export function ConversationPane({
                 <Icon name="file" size={19} />
                 {pendingFiles.length > 0 && <small>{pendingFiles.length}</small>}
               </button>
-              {TOOL_ITEMS.filter(item => item.id !== 'workspace' && item.id !== 'mode').map(item => (
+              )}
+              {TOOL_ITEMS.filter(item => item.id !== 'workspace' && item.id !== 'mode' && isComposerFeatureVisible(item.id, hiddenComposerTools)).map(item => (
                 <button
                   key={item.id}
                   type="button"
@@ -1744,8 +1813,6 @@ export function ConversationPane({
               {...onSelectPermission === undefined ? {} : { onSelectPermission }}
               {...onLoadModels === undefined ? {} : { onLoadModels }}
               {...onSelectModel === undefined ? {} : { onSelectModel }}
-              {...onLoadModelAccess === undefined ? {} : { onLoadModelAccess }}
-              {...onSaveModelAccess === undefined ? {} : { onSaveModelAccess }}
             />
           )}
         </div>

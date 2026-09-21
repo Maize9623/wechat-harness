@@ -1,6 +1,6 @@
 /** Build the WeChat transcript from the official chat window plus earlier history. */
 
-import { visibleUserText } from './persona.ts'
+import { isWrappedUserPrompt, visibleUserText } from './persona.ts'
 import { fileViewsFromPrompt } from './fileAttachments.ts'
 import type { ChatImageView, ChatMessageView } from './types.ts'
 
@@ -16,8 +16,9 @@ export interface TranscriptNode {
   readonly call?: { name?: string } | null
   readonly callId?: string
   readonly isError?: boolean
-  readonly name?: string
-  readonly outcome?: unknown
+  readonly name?: string | null
+  readonly args?: string | null
+  readonly outcome?: { kind?: string; text?: string } | null
   readonly message?: string
   readonly type?: string
 }
@@ -131,10 +132,45 @@ function appendAssistantStep(
   })
 }
 
+function permissionModeLabel(value: string | undefined): string | undefined {
+  if (value === 'danger-full-access') return '完全访问模式'
+  if (value === 'workspace-write') return '工作区可写'
+  if (value === 'read-only') return '只读'
+  if (value === 'auto') return '自动批准'
+  return undefined
+}
+
+function permissionValueOf(args: string, text: string | undefined): string | undefined {
+  const fromArgs = args.split(/\s+/u).find(part => part !== '')
+  if (fromArgs !== undefined) return fromArgs
+  return text?.match(/(?:preset|current preset)\s+(\S+)/u)?.[1]
+}
+
+function commandStatus(node: TranscriptNode): string {
+  const name = node.name ?? 'command'
+  const args = typeof node.args === 'string' ? node.args.trim() : ''
+  const outcome = node.outcome
+  const settled = outcome !== null && outcome !== undefined
+  const failed = settled && outcome.kind === 'error'
+  const text = settled && typeof outcome.text === 'string' ? outcome.text : undefined
+  if (name === 'permission') {
+    const label = permissionModeLabel(permissionValueOf(args, text))
+    if (!settled) return label === undefined ? '正在切换批准模式…' : `正在切换为${label}`
+    if (failed) return '批准模式切换失败'
+    if (args === '' && text !== undefined && text.startsWith('current preset')) {
+      return label === undefined ? '已查看当前批准模式' : `当前是${label}`
+    }
+    return label === undefined ? '已切换批准模式' : `已切换为${label}`
+  }
+  if (!settled) return `正在执行 ${name}…`
+  if (failed) return text === undefined || text.trim() === '' ? `${name} 未完成` : text
+  return text === undefined || text.trim() === '' ? `${name} 已完成` : text
+}
+
 function statusText(node: TranscriptNode): string {
   switch (node.kind) {
     case 'tool-result': return `${node.isError === true ? '工具执行失败' : '工具执行完成'}：${node.call?.name ?? node.callId}`
-    case 'command': return node.outcome === null || node.outcome === undefined ? `正在执行 /${node.name ?? 'command'}` : `命令 /${node.name ?? 'command'} 已完成`
+    case 'command': return commandStatus(node)
     case 'turn-error': return `出现错误：${node.message ?? ''}`
     case 'turn-max-tokens': return '本次回答已达到长度上限'
     case 'model-retry': return '模型正在自动重试'
@@ -172,7 +208,6 @@ function userMessageFromParts(
 export function messagesOf(snapshot: TranscriptSnapshot | undefined): ChatMessageView[] {
   if (snapshot === undefined) return []
   const messages: ChatMessageView[] = []
-  let initializationShown = false
   for (const node of snapshot.nodes) {
     if (node.kind === 'user' || node.kind === 'steering') {
       const message = userMessageFromParts(`${node.kind}-${node.seq}`, node.content ?? [], node.time)
@@ -194,13 +229,12 @@ export function messagesOf(snapshot: TranscriptSnapshot | undefined): ChatMessag
       continue
     }
     if (node.kind === 'context') {
-      const recovered = userMessageFromParts(`context-${node.seq}`, node.content ?? [], node.time)
-      if (recovered !== undefined) {
-        messages.push(recovered)
-        continue
+      const raw = userParts(node.content ?? []).body
+      if (isWrappedUserPrompt(raw)) {
+        const recovered = userMessageFromParts(`context-${node.seq}`, node.content ?? [], node.time)
+        if (recovered !== undefined) messages.push(recovered)
       }
-      if (initializationShown) continue
-      initializationShown = true
+      continue
     }
     const body = statusText(node)
     if (body !== '') messages.push({ id: `${node.kind}-${node.seq}`, role: 'status', body, createdAt: node.time })

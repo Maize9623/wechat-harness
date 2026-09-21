@@ -92,6 +92,12 @@ button, input, textarea, select { font: inherit; }
 .collab-settings-section > strong, .collab-settings-section > small { display: block; }
 .collab-settings-section > small { margin-top: 4px; color: #8a94a4; font-size: 10px; line-height: 1.6; }
 .collab-rail-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+.collab-model-status { margin-top: 10px; color: #9a5b32; font-size: 12px; }
+.collab-model-status[data-configured] { color: #1f8a55; }
+.collab-model-form { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.collab-model-form input { min-width: 0; height: 38px; flex: 1; padding: 0 12px; border: 1px solid #dce2ec; border-radius: 10px; font-size: 13px; }
+.collab-model-form button { height: 38px; flex: none; padding: 0 14px; border-radius: 10px; }
+.collab-composer-reset { height: 32px; margin-top: 10px; padding: 0 12px; color: #2f6bff; cursor: pointer; background: rgb(47 107 255 / 10%); border: 0; border-radius: 9px; }
 .collab-rail-options label { display: flex; grid-template-columns: none; align-items: center; gap: 8px; padding: 10px; cursor: pointer; background: #f7f9fc; border: 1px solid #e1e7f0; border-radius: 10px; }
 .collab-rail-options input { width: 15px; height: 15px; margin: 0; accent-color: #2f6bff; }
 .collab-rail-options label > span { color: #394456; font-size: 11px; }

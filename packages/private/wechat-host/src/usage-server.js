@@ -1,4 +1,6 @@
-/** Official remaining balance for the current DeepSeek API key. */
+/** DeepSeek key balance and ChatGPT Codex subscription windows. */
+
+import { readCodexUsage } from './codex-usage.js'
 
 const API_PATH = '/api/diy-usage'
 const KEY_REF = 'DEEPSEEK_API_KEY'
@@ -7,6 +9,14 @@ const BALANCE_URL = 'https://api.deepseek.com/user/balance'
 function money(value) {
   const next = typeof value === 'number' ? value : Number(value)
   return Number.isFinite(next) ? next : 0
+}
+
+async function settled(load) {
+  try {
+    return await load()
+  } catch (cause) {
+    return { configured: false, error: cause instanceof Error ? cause.message : '官方用量读取失败' }
+  }
 }
 
 /**
@@ -43,8 +53,7 @@ export async function readDeepSeekKeyUsage(ctx) {
 }
 
 /**
- * Register the cookie-authenticated key-balance route on Connection's `/api` channel.
- * Electron strips Origin, so a raw webServer exact route cannot use Host/Origin trust.
+ * Register the cookie-authenticated DeepSeek balance and Codex quota route.
  * @param ctx - Host context that already provides `connection` and `credentials`.
  */
 export function registerDiyUsageRoute(ctx) {
@@ -53,14 +62,11 @@ export function registerDiyUsageRoute(ctx) {
     methods: ['GET'],
     requestBody: 'buffered',
     fetch: async () => {
-      try {
-        return Response.json({ ok: true, usage: await readDeepSeekKeyUsage(ctx) })
-      } catch (cause) {
-        return Response.json({
-          ok: false,
-          error: cause instanceof Error ? cause.message : '官方用量读取失败',
-        }, { status: 502 })
-      }
+      const [deepseek, codex] = await Promise.all([
+        settled(() => readDeepSeekKeyUsage(ctx)),
+        settled(() => readCodexUsage(ctx)),
+      ])
+      return Response.json({ ok: true, deepseek, codex })
     },
   })
 }

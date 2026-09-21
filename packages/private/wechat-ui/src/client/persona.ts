@@ -26,6 +26,15 @@ const USER_MESSAGE_MARKER = '\n<<<DSH_DIY_USER_MESSAGE>>>\n'
 const USER_MESSAGE_MARKER_TOKEN = '<<<DSH_DIY_USER_MESSAGE>>>'
 const SCHEDULED_WAKE_MARKER = '<<<DSH_DIY_SCHEDULED_WAKE>>>'
 
+/**
+ * Whether stored text is an overlay-wrapped human prompt, not a Host context injection.
+ * @param text - stored user/message or context text.
+ * @returns true when the DIY user-message marker is present.
+ */
+export function isWrappedUserPrompt(text: string): boolean {
+  return text.includes(USER_MESSAGE_MARKER_TOKEN)
+}
+
 const CHINESE_RESPONSE_RULES = [
   '<<<DSH_DIY_GLOBAL_RESPONSE_RULES>>>',
   '界面语言强制规则：所有会展示给用户的自然语言内容必须使用简体中文。',
@@ -141,7 +150,7 @@ export function augmentSessionPrompt(sessionId: string, userText: string, attach
   return `${CHINESE_RESPONSE_RULES}\n\n${blocks.join('\n\n')}${attachmentBlock}${USER_MESSAGE_MARKER}${userText}`
 }
 
-const DIY_WRAPPER = /<<<DSH_DIY_(?:GLOBAL_RESPONSE_RULES|SESSION_CONTEXT|FILE_META)>>>[\s\S]*?(?:<<<END_DSH_DIY_(?:GLOBAL_RESPONSE_RULES|SESSION_CONTEXT|FILE_META)>>>|$)/gu
+const DIY_WRAPPER = /<<<DSH_DIY_(?:GLOBAL_RESPONSE_RULES|SESSION_CONTEXT|FILE_META|SKILL_INSTALL)>>>[\s\S]*?(?:<<<END_DSH_DIY_(?:GLOBAL_RESPONSE_RULES|SESSION_CONTEXT|FILE_META|SKILL_INSTALL)>>>|$)/gu
 
 /**
  * Recover the human-typed line from a stored user prompt.

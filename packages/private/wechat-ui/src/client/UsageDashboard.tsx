@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Icon } from './icons.tsx'
+import { formatRemaining, formatResetAt, formatResets } from './usageFormat.ts'
 import type {
   SessionItemView,
   SessionModelView,
@@ -10,12 +11,32 @@ import type {
 
 interface KeyUsageView {
   configured: boolean
+  error?: string
   keyRef?: string
   available?: boolean
   currency?: string
   totalBalance?: number
   grantedBalance?: number
   toppedUpBalance?: number
+}
+
+interface CodexWindowView {
+  id: string
+  label: string
+  remainingPercent?: number
+  resetAt?: number
+  resets?: number
+}
+
+interface CodexUsageView {
+  configured: boolean
+  error?: string
+  plan?: string
+  allowed?: boolean
+  exhausted?: boolean
+  windows?: readonly CodexWindowView[]
+  resets?: number
+  credits?: { hasCredits?: boolean; balance?: number; unlimited?: boolean }
 }
 
 interface UsageDashboardProps {
@@ -70,7 +91,11 @@ export function compactTokens(value: number): string {
 
 function deepSeekPrice(model: SessionModelView | undefined, usage: TokenUsageView): PricedUsage {
   if (model === undefined) return { complete: false, label: '模型待识别', detail: '读取到模型后才会计算费用' }
-  if (!model.provider.toLocaleLowerCase().includes('deepseek')) {
+  const provider = model.provider.toLocaleLowerCase()
+  if (provider.includes('codex') || provider.includes('chatgpt')) {
+    return { complete: false, label: model.model, detail: '消耗 ChatGPT 套餐额度，见上方剩余百分比' }
+  }
+  if (!provider.includes('deepseek')) {
     return { complete: false, label: model.model, detail: '当前尚未配置这个 Provider 的价格表' }
   }
   const id = model.model.toLocaleLowerCase()
@@ -129,13 +154,60 @@ function formatBalance(value: number, currency: string | undefined): string {
   return `${symbol}${value.toFixed(2)}`
 }
 
-async function loadKeyUsage(): Promise<KeyUsageView> {
+async function loadChannelUsage(): Promise<{ deepseek?: KeyUsageView; codex?: CodexUsageView }> {
   const response = await fetch('/api/diy-usage', { headers: { accept: 'application/json' } })
-  const body = await response.json() as { ok?: boolean; usage?: KeyUsageView; error?: string }
-  if (!response.ok || body.ok !== true || body.usage === undefined) {
-    throw new Error(body.error ?? '当前 API Key 的官方用量读取失败')
+  const body = await response.json() as {
+    ok?: boolean
+    deepseek?: KeyUsageView
+    codex?: CodexUsageView
+    usage?: KeyUsageView
+    error?: string
   }
-  return body.usage
+  if (!response.ok || body.ok !== true) {
+    throw new Error(body.error ?? '官方用量读取失败')
+  }
+  return {
+    deepseek: body.deepseek ?? body.usage,
+    ...(body.codex === undefined ? {} : { codex: body.codex }),
+  }
+}
+
+function CodexQuota({ usage, loading }: { usage?: CodexUsageView; loading: boolean }) {
+  const windows = usage?.windows ?? []
+  const plan = usage?.plan ?? 'ChatGPT'
+  const status = usage?.exhausted === true ? '已用尽' : '正常'
+  return (
+    <section className="diywx-usage-codex" aria-label="ChatGPT Codex 套餐">
+      <header>
+        <strong>ChatGPT Codex 套餐</strong>
+        <small>{loading
+          ? '正在读取…'
+          : usage?.configured !== true
+            ? (usage?.error ?? '未登录。到设置登录 ChatGPT 后可查看剩余额度。')
+            : usage.error === undefined
+              ? `${plan} · ${status}`
+              : usage.error}</small>
+      </header>
+      {usage?.configured === true && usage.error === undefined && (
+        <div className="diywx-usage-codex-windows">
+          {windows.map(window => (
+            <article key={window.id}>
+              <span>{window.label}</span>
+              <strong>{formatRemaining(window.remainingPercent)}</strong>
+              <small>{[formatResetAt(window.resetAt), formatResets(window.resets)].filter(Boolean).join(' · ')}</small>
+            </article>
+          ))}
+          {windows.length === 0 && (
+            <article>
+              <span>套餐额度</span>
+              <strong>{status}</strong>
+              <small>{formatResets(usage.resets) ?? '官方未返回分窗口剩余'}</small>
+            </article>
+          )}
+        </div>
+      )}
+    </section>
+  )
 }
 
 export function UsageDashboard({ sessions, models, loading, error, loadUsage, onClose }: UsageDashboardProps) {
@@ -144,6 +216,7 @@ export function UsageDashboard({ sessions, models, loading, error, loadUsage, on
   const [historyLoading, setHistoryLoading] = useState(true)
   const [historyError, setHistoryError] = useState<string | undefined>()
   const [keyUsage, setKeyUsage] = useState<KeyUsageView | undefined>()
+  const [codexUsage, setCodexUsage] = useState<CodexUsageView | undefined>()
   const [keyLoading, setKeyLoading] = useState(true)
   const [keyError, setKeyError] = useState<string | undefined>()
   const sessionIdsKey = sessions.map(session => session.id).join('\u0000')
@@ -152,10 +225,13 @@ export function UsageDashboard({ sessions, models, loading, error, loadUsage, on
     let active = true
     setKeyLoading(true)
     setKeyError(undefined)
-    void loadKeyUsage().then((value) => {
-      if (active) setKeyUsage(value)
+    void loadChannelUsage().then((value) => {
+      if (!active) return
+      setKeyUsage(value.deepseek)
+      setCodexUsage(value.codex)
+      if (value.deepseek?.error !== undefined) setKeyError(value.deepseek.error)
     }).catch((reason) => {
-      if (active) setKeyError(reason instanceof Error ? reason.message : '当前 API Key 的官方用量读取失败')
+      if (active) setKeyError(reason instanceof Error ? reason.message : '官方用量读取失败')
     }).finally(() => { if (active) setKeyLoading(false) })
     return () => { active = false }
   }, [])
@@ -204,7 +280,7 @@ export function UsageDashboard({ sessions, models, loading, error, loadUsage, on
     <div className="diywx-modal-backdrop diywx-usage-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
       <section className="diywx-usage-dialog" role="dialog" aria-modal="true" aria-label="用量与费用">
         <header>
-          <span className="diywx-usage-heading"><span><Icon name="usage" size={20} /></span><span><strong>用量与费用</strong><small>仅读取当前 DeepSeek API Key 的官方余额，并对照本机会话 token</small></span></span>
+          <span className="diywx-usage-heading"><span><Icon name="usage" size={20} /></span><span><strong>用量与费用</strong><small>DeepSeek 官方余额、ChatGPT Codex 套餐剩余，以及本机会话 token</small></span></span>
           <button type="button" aria-label="关闭用量与费用" onClick={onClose}>×</button>
         </header>
         <nav className="diywx-usage-ranges" aria-label="统计时间范围">
@@ -221,6 +297,7 @@ export function UsageDashboard({ sessions, models, loading, error, loadUsage, on
           <article><span>{rangeLabel} Token</span><strong>{historyLoading ? '读取中…' : formatTokens(totalTokens(totals))}</strong><small>{rows.length} 个有用量的会话</small></article>
           <article><span>本机预估费用</span><strong>{historyLoading ? '计算中…' : formatCost(estimatedCost)}</strong><small>{fullyPriced ? '按 Flash / Pro 官方价估算，不是账单扣款' : `${pricedRows.length}/${rows.length} 个会话可部分或完整计价`}</small></article>
         </div>
+        <CodexQuota usage={codexUsage} loading={keyLoading} />
         <div className="diywx-usage-breakdown" aria-label="Token 构成">
           <span><i data-color="miss" />输入未命中 <strong>{formatTokens(totals.uncachedInputTokens + totals.cacheWriteTokens)}</strong></span>
           <span><i data-color="cache" />缓存命中 <strong>{formatTokens(totals.cacheReadTokens)}</strong></span>
@@ -245,7 +322,7 @@ export function UsageDashboard({ sessions, models, loading, error, loadUsage, on
         </div>
         {(combinedError !== undefined || history.failures.length > 0) && <p className="diywx-usage-error">部分数据读取失败：{combinedError ?? history.failures.slice(0, 2).join('；')}</p>}
         <footer>
-          <p><strong>计价说明</strong> 余额来自官方 <code>/user/balance</code>，只使用本机当前的 <code>DEEPSEEK_API_KEY</code>，不会读取其他 Key。本机 token 与预估费用按 Flash / Pro 官方价估算，推理 token 已含在输出中；官方账单以平台扣款为准。</p>
+          <p><strong>计价说明</strong> DeepSeek 余额来自官方 <code>/user/balance</code>。Codex 剩余百分比、刷新时间和可用重置来自当前 ChatGPT 登录，不是这把 DeepSeek Key。本机 token 与预估费用只按 Flash / Pro 官方价估算；Codex 会话不编造人民币费用。官方账单以平台扣款为准。</p>
           <a href="https://api-docs.deepseek.com/zh-cn/quick_start/pricing" target="_blank" rel="noopener noreferrer">查看 DeepSeek 官方价格 ↗</a>
         </footer>
       </section>

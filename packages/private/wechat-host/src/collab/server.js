@@ -13,6 +13,7 @@ import {
   filePromptContext,
   readStoredFileText,
 } from '../file-attachments.js'
+import { installSkillFromSource, listInstalledSkills } from '../skill-server.js'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const PUBLIC_DIR = join(HERE, 'public')
@@ -1526,6 +1527,25 @@ export class CollaborationServer {
       return
     }
 
+    if (method === 'GET' && url.pathname === '/api/diy-skills') {
+      const cwd = url.searchParams.get('cwd') ?? undefined
+      const skills = await listInstalledSkills(cwd === undefined || cwd.trim() === '' ? {} : { cwd: cwd.trim() })
+      json(res, 200, { ok: true, skills })
+      return
+    }
+
+    if (method === 'POST' && url.pathname === '/api/diy-skills') {
+      this.assertMutation(req, auth)
+      const body = await readJson(req)
+      try {
+        const skill = await installSkillFromSource(String(body.source ?? body.markdown ?? ''))
+        json(res, 200, { ok: true, skill })
+      } catch (cause) {
+        error(res, 400, cause instanceof Error ? cause.message : '技能安装失败')
+      }
+      return
+    }
+
     if (method === 'GET' && url.pathname === '/api/services') {
       const access = this.serviceAccess(auth.user)
       const all = this.serviceManager?.list?.() ?? []
@@ -1566,7 +1586,7 @@ export class CollaborationServer {
       if (method === 'GET') {
         let status
         try { status = await this.bridge.credentialStatus() } catch (cause) {
-          return error(res, 502, cause instanceof Error ? cause.message : '模型凭据状态读取失败')
+          return error(res, 502, cause instanceof Error ? cause.message : '模型通道状态读取失败')
         }
         json(res, 200, { ok: true, access: { ...status, canConfigure, providerLabel: 'DeepSeek' } })
         return
@@ -1580,7 +1600,7 @@ export class CollaborationServer {
         if (apiKey.length < 16 || apiKey.length > 512) return error(res, 400, '请输入有效的 DeepSeek API Key')
         let status
         try { status = await this.bridge.setCredential(apiKey) } catch (cause) {
-          return error(res, 502, cause instanceof Error ? cause.message : '模型凭据保存失败')
+          return error(res, 502, cause instanceof Error ? cause.message : 'DeepSeek Key 保存失败')
         }
         this.store.transact(state => { audit(state, auth.user.id, 'update-model-credential', auth.user.id, { provider: 'DeepSeek' }) })
         json(res, 200, { ok: true, access: { ...status, canConfigure: true, providerLabel: 'DeepSeek' } })

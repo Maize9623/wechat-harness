@@ -49,6 +49,7 @@ fork-docs/                    评审手册与隔离说明
 - Node.js `^22.19.0 || >=24.0.0`
 - pnpm `11.7.0`（见根目录 `packageManager`）
 - 本机可用的 `DEEPSEEK_API_KEY`（写入根目录 `.env`，不要提交）
+- ChatGPT Codex 订阅在通用设置里本机登录；OAuth 和套餐额度只留在本机凭据库，不要提交
 
 ```sh
 git clone https://github.com/Maize9623/wechat-harness.git
@@ -78,7 +79,7 @@ pnpm run start:desktop
 2. 本机 `19387` 对无凭证请求返回 401。
 3. 本机 `3191` 提供群聊页。
 
-第一次使用：打开通用设置写入 DeepSeek API Key，再添加一个空工作区，然后建会话发消息。不要把本仓库或旧 Harness 工程当作默认工作区。
+第一次使用：打开通用设置写入 DeepSeek API Key，或登录 ChatGPT Codex，再添加一个空工作区，然后建会话发消息。不要把本仓库或旧 Harness 工程当作默认工作区。
 
 群聊版在通用设置里「启动群聊版」。主窗口保持打开；群聊 AI 仍走 `19387`，关掉主窗口等于关掉 Host。
 
