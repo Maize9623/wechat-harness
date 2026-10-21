@@ -1,7 +1,5 @@
 # WeChat Harness
 
-私有仓库，暂不公开。
-
 WeChat Harness 是一套本机桌面 Agent 工作台：在微信式会话里指挥 DeepSeek，由官方 DeepSeek Harness Desktop Host 执行工具、读写工作区、调度任务。需要多人协作时，再开一个同壳的群聊窗口。
 
 本仓库包含上游 DeepSeek Harness `dsh-v0.1.6-alpha.2` 的完整源码，以及 WeChat 壳、Desktop 品牌和群聊 sidecar。
@@ -29,7 +27,7 @@ WeChat Harness 是一套本机桌面 Agent 工作台：在微信式会话里指�
 | 开发分支 | `desktop-wechat-port` |
 | 本仓库默认分支 | `desktop-wechat-port` |
 
-本地 `origin` 仍指向官方上游。本私有仓库使用 remote 名 `wechat`，避免覆盖官方地址。
+本地 `origin` 仍指向官方上游。本仓库使用 remote 名 `wechat`，避免覆盖官方地址。
 
 ## 源码位置
 
@@ -120,4 +118,4 @@ macOS 需要在 **系统设置 → 隐私与安全性** 里给 `WeChat Harness.a
 
 上游 DeepSeek Harness 为 [MIT](LICENSE)。第三方依赖见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
-本仓库为私有预览，未授权前不要公开、不要发布到 npm，也不要替换官方 DeepSeek Desktop 更新通道。
+请不要把本仓库发布到 npm，也不要替换官方 DeepSeek Desktop 更新通道。
